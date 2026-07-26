@@ -1,0 +1,277 @@
+/**
+ * Egern - AdGuard Home 统计面板脚本 (排版精修版)
+ * 类型：generic（小组件脚本）
+ *
+ * 环境变量（在小组件的"环境变量"里添加，无需改代码）：
+ *   ADGUARD_URL       AdGuard Home 地址，如 https://dns.example.com
+ *   ADGUARD_USERNAME  管理员账号
+ *   ADGUARD_PASSWORD  管理员密码
+ */
+
+function base64Encode(str) {
+  if (typeof btoa === "function") return btoa(str);
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+  let encoded = "";
+  let i = 0;
+  while (i < str.length) {
+    const c1 = str.charCodeAt(i++);
+    const c2 = str.charCodeAt(i++);
+    const c3 = str.charCodeAt(i++);
+    const e1 = c1 >> 2;
+    const e2 = ((c1 & 3) << 4) | (isNaN(c2) ? 0 : c2 >> 4);
+    const e3 = isNaN(c2) ? 64 : ((c2 & 15) << 2) | (isNaN(c3) ? 0 : c3 >> 6);
+    const e4 = isNaN(c3) ? 64 : c3 & 63;
+    encoded += chars[e1] + chars[e2] + chars[e3] + chars[e4];
+  }
+  return encoded;
+}
+
+function errorWidget(message, color) {
+  return {
+    type: "widget",
+    padding: 16,
+    backgroundColor: { light: "#FFFFFF", dark: "#1C1C1E" },
+    children: [
+      {
+        type: "stack",
+        direction: "row",
+        gap: 6,
+        alignItems: "center",
+        children: [
+          { type: "image", src: "sf-symbol:exclamationmark.triangle", color, width: 16, height: 16 },
+          { type: "text", text: "AdGuard Home", font: { size: "headline", weight: "bold" } }
+        ]
+      },
+      { type: "spacer", length: 8 },
+      { type: "text", text: message, font: { size: "footnote" }, textColor: color, maxLines: 3 }
+    ]
+  };
+}
+
+// 数值区块：有 suffix（如百分比）时，数字在上、suffix 在下，两者都右对齐
+function valueBlock(value, valueFont, valueColor, suffix, suffixFont) {
+  if (!suffix) {
+    return { type: "text", text: value, font: { size: valueFont, weight: "bold" }, textColor: valueColor, textAlign: "right" };
+  }
+  return {
+    type: "stack",
+    direction: "column",
+    gap: 0,
+    alignItems: "end",
+    children: [
+      { type: "text", text: value, font: { size: valueFont, weight: "bold" }, textColor: valueColor, textAlign: "right" },
+      { type: "text", text: suffix, font: { size: suffixFont, weight: "semibold" }, textColor: valueColor + "AA", textAlign: "right" }
+    ]
+  };
+}
+
+// 一行"标签 + 数值"，下方跟一条线形进度条
+function statLine({ icon, iconColor, label, value, valueColor, suffix, barWidth, barFillRatio, barColor, sizes }) {
+  const filled = Math.max(3, barFillRatio * barWidth);
+  return {
+    type: "stack",
+    direction: "column",
+    gap: sizes.lineGap,
+    children: [
+      {
+        type: "stack",
+        direction: "row",
+        gap: sizes.labelGap,
+        alignItems: "center",
+        children: [
+          { type: "image", src: icon, color: iconColor, width: sizes.iconSize, height: sizes.iconSize },
+          { type: "text", text: label, font: { size: sizes.labelFont }, textColor: "#AAAAAA" },
+          { type: "spacer" },
+          valueBlock(value, sizes.valueFont, valueColor, suffix, sizes.suffixFont)
+        ]
+      },
+      {
+        type: "image",
+        src:
+          `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${barWidth} ${sizes.barHeight}'>` +
+          `<rect x='0' y='0' width='${barWidth}' height='${sizes.barHeight}' rx='${sizes.barHeight / 2}' fill='rgba(255,255,255,0.12)'/>` +
+          `<rect x='0' y='0' width='${filled.toFixed(1)}' height='${sizes.barHeight}' rx='${sizes.barHeight / 2}' fill='${barColor}'/>` +
+          `</svg>`,
+        width: barWidth,
+        height: sizes.barHeight
+      }
+    ]
+  };
+}
+
+// AdGuard 品牌头部：盾牌图标 + ADGUARD / HOME 堆叠文字 + 状态徽章
+function brandHeader({ iconSize, titleSize, subtitleSize, badgeText, badgeColor, badgePadding, badgeFont }) {
+  return {
+    type: "stack",
+    direction: "row",
+    gap: 8,
+    alignItems: "center",
+    children: [
+      { type: "image", src: "sf-symbol:checkmark.shield", color: "#FFFFFF", width: iconSize, height: iconSize },
+      {
+        type: "stack",
+        direction: "column",
+        gap: 0,
+        alignItems: "start",
+        children: [
+          { type: "text", text: "ADGUARD", font: { size: titleSize, weight: "heavy" }, textColor: "#FFFFFF", maxLines: 1 },
+          { type: "text", text: "HOME", font: { size: subtitleSize, weight: "semibold" }, textColor: "#AAAAAA", maxLines: 1 }
+        ]
+      },
+      { type: "spacer" },
+      {
+        type: "stack",
+        direction: "row",
+        padding: badgePadding,
+        backgroundColor: badgeColor,
+        borderRadius: 10,
+        children: [{ type: "text", text: badgeText, font: { size: badgeFont, weight: "bold" }, textColor: "#FFFFFF", maxLines: 1 }]
+      }
+    ]
+  };
+}
+
+function divider() {
+  return { type: "stack", direction: "row", height: 1, backgroundColor: "rgba(255,255,255,0.1)", children: [] };
+}
+
+export default async function (ctx) {
+  const url = ctx.env.ADGUARD_URL || "";
+  const username = ctx.env.ADGUARD_USERNAME || "";
+  const password = ctx.env.ADGUARD_PASSWORD || "";
+
+  if (!url || !username || !password) {
+    return errorWidget("请在小组件的环境变量中填写 ADGUARD_URL / ADGUARD_USERNAME / ADGUARD_PASSWORD", "#FF9500");
+  }
+
+  const authHeader = { Authorization: `Basic ${base64Encode(`${username}:${password}`)}` };
+
+  let stats;
+  try {
+    const statsResp = await ctx.http.get(`${url}/control/stats`, { headers: authHeader });
+    if (statsResp.status && statsResp.status !== 200) {
+      return errorWidget(`认证失败 (HTTP ${statsResp.status})，请检查账号密码`, "#FF9500");
+    }
+    stats = await statsResp.json();
+  } catch (e) {
+    return errorWidget("连接超时或失败，请检查网络或地址设置", "#FF3B30");
+  }
+
+  let protectionEnabled = null;
+  try {
+    const statusResp = await ctx.http.get(`${url}/control/status`, { headers: authHeader });
+    if (statusResp.status === 200) {
+      const statusData = await statusResp.json();
+      protectionEnabled = !!statusData.protection_enabled;
+    }
+  } catch (e) {
+    // 保持 null（未知），不影响统计数据展示
+  }
+
+  const total = stats.num_dns_queries || 0;
+  const blocked = stats.num_blocked_filtering || 0;
+  const ratioNum = total > 0 ? (blocked / total) * 100 : 0;
+  const ratio = ratioNum.toFixed(1);
+  const avgTime = stats.avg_processing_time ? (stats.avg_processing_time * 1000).toFixed(1) : "0.0";
+
+  const badgeText = protectionEnabled === null ? "状态未知" : protectionEnabled ? "启用中" : "已禁用";
+  const badgeColor = protectionEnabled === null ? "#8E8E93" : protectionEnabled ? "#4CAF50" : "#FF3B30";
+
+  const bgGradient = {
+    type: "linear",
+    colors: ["#0F3D2E", "#12121E"],
+    startPoint: { x: 0, y: 0 },
+    endPoint: { x: 1, y: 1 }
+  };
+
+  // ---- 锁屏小组件：一行摘要 ----
+  if (ctx.widgetFamily === "accessoryRectangular" || ctx.widgetFamily === "accessoryInline") {
+    return {
+      type: "widget",
+      children: [
+        {
+          type: "text",
+          text: `拦截 ${ratio}% · ${blocked.toLocaleString()}/${total.toLocaleString()}`,
+          font: { size: "footnote", weight: "semibold" }
+        }
+      ]
+    };
+  }
+
+  const footer = (font) => ({
+    type: "stack",
+    direction: "row",
+    gap: 10,
+    alignItems: "center",
+    children: [
+      {
+        type: "stack",
+        direction: "row",
+        gap: 4,
+        alignItems: "center",
+        children: [
+          { type: "image", src: "sf-symbol:bolt.fill", color: "#FFD60A", width: 10, height: 10 },
+          { type: "text", text: `平均耗时 ${avgTime} ms`, font: { size: font }, textColor: "#888888" }
+        ]
+      },
+      { type: "spacer" },
+      { type: "date", date: new Date().toISOString(), format: "relative", font: { size: font }, textColor: "#888888" }
+    ]
+  });
+
+  // ---- 小尺寸主屏小组件 ----
+  if (ctx.widgetFamily === "systemSmall") {
+    const sizes = { lineGap: 4, labelGap: 5, iconSize: 12, labelFont: "caption1", valueFont: "title3", suffixFont: "caption2", barHeight: 6 };
+    const barWidth = 130;
+    return {
+      type: "widget",
+      padding: 14,
+      gap: 8,
+      backgroundGradient: bgGradient,
+      children: [
+        brandHeader({ iconSize: 18, titleSize: 13, subtitleSize: 8, badgeText, badgeColor, badgePadding: [3, 8], badgeFont: "caption2" }),
+        statLine({ icon: "sf-symbol:antenna.radiowaves.left.and.right", iconColor: "#5AC8FA", label: "请求", value: total.toLocaleString(), valueColor: "#FFFFFF", suffix: null, barWidth, barFillRatio: 1, barColor: "rgb(90,200,250)", sizes }),
+        statLine({ icon: "sf-symbol:hand.raised.slash", iconColor: "#FF6B6B", label: "拦截", value: blocked.toLocaleString(), valueColor: "#FF6B6B", suffix: `${ratio}%`, barWidth, barFillRatio: ratioNum / 100, barColor: "rgb(255,107,107)", sizes })
+      ]
+    };
+  }
+
+  // ---- 大尺寸 (systemLarge / systemExtraLarge)：图标不变，标题/徽章文字略缩小，数字与百分比上下右对齐 ----
+  if (ctx.widgetFamily === "systemLarge" || ctx.widgetFamily === "systemExtraLarge") {
+    const sizes = { lineGap: 8, labelGap: 6, iconSize: 15, labelFont: "subheadline", valueFont: "largeTitle", suffixFont: "footnote", barHeight: 10 };
+    const barWidth = 270;
+    return {
+      type: "widget",
+      padding: 20,
+      gap: 18,
+      backgroundGradient: bgGradient,
+      children: [
+        brandHeader({ iconSize: 34, titleSize: "title3", subtitleSize: "caption2", badgeText, badgeColor, badgePadding: [5, 12], badgeFont: "caption1" }),
+        divider(),
+        statLine({ icon: "sf-symbol:antenna.radiowaves.left.and.right", iconColor: "#5AC8FA", label: "请求", value: total.toLocaleString(), valueColor: "#FFFFFF", suffix: null, barWidth, barFillRatio: 1, barColor: "rgb(90,200,250)", sizes }),
+        statLine({ icon: "sf-symbol:hand.raised.slash", iconColor: "#FF6B6B", label: "拦截", value: blocked.toLocaleString(), valueColor: "#FF6B6B", suffix: `${ratio}%`, barWidth, barFillRatio: ratioNum / 100, barColor: "rgb(255,107,107)", sizes }),
+        footer("footnote"),
+        { type: "spacer" }
+      ]
+    };
+  }
+
+  // ---- 中尺寸 (systemMedium)：真实高度只有约 160pt，整体收紧避免顶部被裁 ----
+  const sizes = { lineGap: 4, labelGap: 5, iconSize: 11, labelFont: "caption2", valueFont: "subheadline"
+, suffixFont: "caption2", barHeight: 5 };
+  const barWidth = 240;
+  return {
+    type: "widget",
+    padding: [16, 18, 10, 18],
+
+    gap: 6,
+    backgroundGradient: bgGradient,
+    children: [
+      brandHeader({ iconSize: 18, titleSize: 12, subtitleSize: 8, badgeText, badgeColor, badgePadding: [3, 8], badgeFont: "caption2" }),
+      statLine({ icon: "sf-symbol:antenna.radiowaves.left.and.right", iconColor: "#5AC8FA", label: "请求", value: total.toLocaleString(), valueColor: "#FFFFFF", suffix: null, barWidth, barFillRatio: 1, barColor: "rgb(90,200,250)", sizes }),
+      statLine({ icon: "sf-symbol:hand.raised.slash", iconColor: "#FF6B6B", label: "拦截", value: blocked.toLocaleString(), valueColor: "#FF6B6B", suffix: `${ratio}%`, barWidth, barFillRatio: ratioNum / 100, barColor: "rgb(255,107,107)", sizes }),
+      footer("caption2"),
+      { type: "spacer" }
+    ]
+  };
+}
