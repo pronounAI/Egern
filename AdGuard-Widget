@@ -5,7 +5,7 @@
  * 环境变量（在小组件的"环境变量"里添加，无需改代码）：
  *   ADGUARD_URL       AdGuard Home “建议优先使用 HTTPS 地址以保护账号密码安全”。
 ，如 https://dns.example.com
- *   ADGUARD_USERNAME  管理员账号
+ *   ADGUARD_USERNAME  管理员账号 
  *   ADGUARD_PASSWORD  管理员密码
  */
 
