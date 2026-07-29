@@ -429,33 +429,58 @@ function header(data, isSmall = false) {
   };
 }
 
-function progressBar(traffic, width) {
+function progressBar(traffic) {
   const percent = percentRemaining(traffic);
-  const fillWidth = percent == null ? width : Math.max(5, Math.round(width * percent / 100));
+  if (percent == null) {
+    return {
+      type: 'stack',
+      direction: 'row',
+      height: 5,
+      backgroundColor: C.track,
+      borderRadius: 3,
+      children: [{
+        type: 'stack',
+        height: 5,
+        backgroundColor: C.accent,
+        borderRadius: 3,
+        flex: 1,
+        children: []
+      }]
+    };
+  }
+
+  const active = Math.max(0.001, percent);
+  const empty = Math.max(0.001, 100 - percent);
+
   return {
     type: 'stack',
     direction: 'row',
-    width,
     height: 5,
     backgroundColor: C.track,
     borderRadius: 3,
-    children: [{
-      type: 'stack',
-      width: fillWidth,
-      height: 5,
-      backgroundColor: C.accent,
-      borderRadius: 3,
-      children: []
-    }]
+    children: [
+      {
+        type: 'stack',
+        height: 5,
+        backgroundColor: C.accent,
+        borderRadius: 3,
+        flex: active,
+        children: []
+      },
+      {
+        type: 'spacer',
+        flex: empty
+      }
+    ]
   };
 }
 
-function progressOrNote(traffic, width) {
+function progressOrNote(traffic) {
   const percent = percentRemaining(traffic);
   if (percent == null && !traffic.unlimited) {
     return text('服务商仅提供剩余流量', 9, C.dim, 'medium');
   }
-  return progressBar(traffic, width);
+  return progressBar(traffic);
 }
 
 function fallbackGauge(traffic, size = 90) {
@@ -638,7 +663,7 @@ function smallWidget(data, ctx) {
           text(traffic.unlimited ? '∞' : percent == null ? '--' : `${percent.toFixed(0)}%`, 11, C.text, 'semibold')
         ]
       },
-      progressOrNote(traffic, 120),
+      progressOrNote(traffic),
       { type: 'spacer' },
       text(formatDate(traffic.expireAt), 9, C.dim, 'medium')
     ]
@@ -654,6 +679,14 @@ function largeWidget(data, ctx) {
   const mode = styleMode(ctx);
   const daily = days && days > 0 && Number.isFinite(traffic.remaining) ? traffic.remaining / days : null;
 
+  const cardBg = mode === 'glass'
+    ? { light: 'rgba(255, 255, 255, 0.18)', dark: 'rgba(255, 255, 255, 0.08)' }
+    : C.panel;
+
+  const hairlineBg = mode === 'glass'
+    ? { light: 'rgba(255, 255, 255, 0.25)', dark: 'rgba(255, 255, 255, 0.12)' }
+    : C.hairline;
+
   return {
     type: 'widget',
     ...rootBackground(mode),
@@ -668,8 +701,8 @@ function largeWidget(data, ctx) {
         alignItems: 'center',
         gap: 12,
         padding: [11, 14],
-        backgroundColor: C.panel,
-        borderRadius: 8,
+        backgroundColor: cardBg,
+        borderRadius: 12,
         children: [
           icon('arrow.up.arrow.down.circle.fill', C.accent, 28),
           {
@@ -687,7 +720,7 @@ function largeWidget(data, ctx) {
           text(traffic.unlimited ? '∞' : percent == null ? '--' : `${percent.toFixed(0)}%`, 18, C.text, 'bold')
         ]
       },
-      progressOrNote(traffic, 290),
+      progressOrNote(traffic),
       {
         type: 'stack',
         direction: 'row',
@@ -698,7 +731,7 @@ function largeWidget(data, ctx) {
           metric('合计已用', optionalBytes(traffic.used))
         ]
       },
-      { type: 'stack', height: 1, backgroundColor: C.hairline, children: [] },
+      { type: 'stack', height: 1, backgroundColor: hairlineBg, children: [] },
       {
         type: 'stack',
         direction: 'row',
