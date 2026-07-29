@@ -230,7 +230,6 @@ function daysRemaining(expireAt) {
   return Math.ceil((expireAt - Date.now()) / 86400000);
 }
 
-// 重点优化 1：优化状态判定，返回符合精致胶囊样式的图标、背景色与文本
 function statusOf(data) {
   if (data.mode === 'setup') {
     return { label: '待配置', icon: 'gearshape.fill', bgColor: 'rgba(255, 255, 255, 0.22)', iconColor: '#FFFFFF' };
@@ -257,7 +256,6 @@ function statusOf(data) {
     return { label: '流量偏低', icon: 'exclamationmark.triangle.fill', bgColor: 'rgba(255, 190, 63, 0.3)', iconColor: '#FFBE3F' };
   }
 
-  // 正常更新状态
   return { label: '数据已更新', icon: 'checkmark.circle.fill', bgColor: 'rgba(255, 255, 255, 0.25)', iconColor: '#FFFFFF' };
 }
 
@@ -386,9 +384,37 @@ function text(value, size, color, weight = 'regular', extra = {}) {
   };
 }
 
-// 重点优化 2：毛玻璃胶囊形态的 Header 组件
-function header(data) {
+function header(data, isSmall = false) {
   const status = statusOf(data);
+  const badge = isSmall
+    ? {
+        type: 'stack',
+        direction: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: [4, 7, 4, 7],
+        backgroundColor: status.bgColor,
+        borderRadius: 12,
+        children: [
+          icon(status.icon, status.iconColor, 12)
+        ]
+      }
+    : {
+        type: 'stack',
+        direction: 'row',
+        alignItems: 'center',
+        gap: 5,
+        padding: [4, 10, 4, 8],
+        backgroundColor: status.bgColor,
+        borderRadius: 14,
+        children: [
+          icon(status.icon, status.iconColor, 13),
+          text(status.label, 10, '#FFFFFF', 'semibold')
+        ]
+      };
+
+  const titleText = isSmall ? (data.name || 'SUBSCRIPTION') : 'SUBSCRIPTION';
+
   return {
     type: 'stack',
     direction: 'row',
@@ -396,21 +422,9 @@ function header(data) {
     gap: 7,
     children: [
       icon('chart.pie.fill', C.accent, 14),
-      text('SUBSCRIPTION', 10, C.dim, 'bold'),
+      text(titleText, 10, C.dim, 'bold', isSmall ? { minScale: 0.7 } : {}),
       { type: 'spacer' },
-      {
-        type: 'stack',
-        direction: 'row',
-        alignItems: 'center',
-        gap: 5,
-        padding: [4, 10, 4, 8],
-        backgroundColor: status.bgColor,
-        borderRadius: 14, // 胶囊式大圆角
-        children: [
-          icon(status.icon, status.iconColor, 13),
-          text(status.label, 10, '#FFFFFF', 'semibold')
-        ]
-      }
+      badge
     ]
   };
 }
@@ -502,7 +516,7 @@ function emptyWidget(data, family, ctx) {
     gap: 8,
     refreshAfter: new Date(Date.now() + refreshHours * 3600000).toISOString(),
     children: [
-      header(data),
+      header(data, isSmall),
       { type: 'spacer' },
       {
         type: 'stack',
@@ -543,7 +557,7 @@ function mediumWidget(data, ctx) {
     gap: 8,
     refreshAfter: new Date(Date.now() + refreshHours * 3600000).toISOString(),
     children: [
-      header(data),
+      header(data, false),
       { type: 'spacer' },
       {
         type: 'stack',
@@ -609,7 +623,7 @@ function smallWidget(data, ctx) {
     gap: 7,
     refreshAfter: new Date(Date.now() + refreshHours * 3600000).toISOString(),
     children: [
-      header(data),
+      header(data, true),
       { type: 'spacer' },
       text(formatBytes(traffic.remaining), 24, C.text, 'bold', {
         font: { size: 24, weight: 'bold', family: 'Menlo' },
@@ -647,7 +661,7 @@ function largeWidget(data, ctx) {
     gap: 10,
     refreshAfter: new Date(Date.now() + refreshHours * 3600000).toISOString(),
     children: [
-      header(data),
+      header(data, false),
       {
         type: 'stack',
         direction: 'row',
