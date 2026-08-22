@@ -1,0 +1,370 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+readonly CONFIG_FILE=/etc/hysteria/config.yaml
+readonly SERVICE=hysteria-server.service
+readonly INSTALL_URL=https://get.hy2.sh/
+readonly BIN=/usr/local/bin/hysteria
+readonly BACKUP_DIR=/etc/hysteria/backup
+
+log(){ printf '\033[1;32m[+]\033[0m %s\n' "$*"; }
+warn(){ printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
+die(){ printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
+
+trap 'die "脚本执行失败：第 ${LINENO} 行。"' ERR
+
+require_root(){ [[ $EUID -eq 0 ]] || die '请使用 root 运行。'; }
+
+command_exists(){ command -v "$1" >/dev/null 2>&1; }
+
+install_deps(){
+  local missing=() c
+  for c in bash curl grep sed awk tr head mkdir chmod cp mv rm systemctl getent; do
+    command_exists "$c" || missing+=("$c")
+  done
+  ((${#missing[@]}==0)) && return
+
+  if command_exists apt-get; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y curl ca-certificates coreutils grep sed gawk
+  elif command_exists dnf; then
+    dnf install -y curl ca-certificates coreutils grep sed gawk
+  elif command_exists yum; then
+    yum install -y curl ca-certificates coreutils grep sed gawk
+  elif command_exists apk; then
+    apk add --no-cache curl ca-certificates coreutils grep sed gawk
+  else
+    die "缺少依赖：${missing[*]}，且无法识别包管理器。"
+  fi
+}
+
+check_os(){
+  [[ -d /run/systemd/system ]] || die '系统未运行 systemd，不支持此脚本。'
+  [[ -f /etc/os-release ]] || die '无法识别 Linux 发行版。'
+  . /etc/os-release
+  case "${ID:-}" in
+    debian|ubuntu|linuxmint|raspbian) ;;
+    *) warn "未针对 ${PRETTY_NAME:-未知发行版} 做专门测试，将继续尝试。" ;;
+  esac
+}
+
+random_password(){
+  if [[ -r /dev/urandom ]]; then
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true
+    printf '\n'
+  else
+    die '/dev/urandom 不可用。'
+  fi
+}
+
+backup_config(){
+  if [[ -f "$CONFIG_FILE" ]]; then
+    mkdir -p "$BACKUP_DIR"
+    local ts
+    ts=$(date +%Y%m%d-%H%M%S)
+    cp -a "$CONFIG_FILE" "$BACKUP_DIR/config.yaml.$ts"
+    log "已备份旧配置：$BACKUP_DIR/config.yaml.$ts"
+  fi
+}
+
+install_hysteria(){
+  log '使用 Hysteria 官方安装脚本安装/更新 Hysteria 2。'
+  HYSTERIA_USER=root bash <(curl -fsSL "$INSTALL_URL")
+  [[ -x "$BIN" ]] || die 'Hysteria 安装完成后未找到 /usr/local/bin/hysteria。'
+}
+
+validate_domain(){
+  local domain=$1
+  [[ "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die '域名格式不正确。'
+  getent ahosts "$domain" >/dev/null 2>&1 || die "域名 $domain 当前无法解析，请先配置 DNS。"
+}
+
+validate_email(){
+  [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die '邮箱格式不正确。'
+}
+
+validate_port(){
+  [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )) || die '端口必须是 1-65535。'
+}
+
+port_in_use(){
+  local port=$1 proto=$2
+  if command_exists ss; then
+    if [[ $proto == udp ]]; then
+      ss -H -lun "sport = :$port" 2>/dev/null | grep -q .
+    else
+      ss -H -ltn "sport = :$port" 2>/dev/null | grep -q .
+    fi
+  else
+    warn "未找到 ss 命令，无法检测 $proto/$port 是否被占用，跳过该项检查。"
+    return 1
+  fi
+}
+
+configure_firewall(){
+  local port=$1
+  # ACME TLS-ALPN 验证默认使用 TCP/443，与代理实际使用的 UDP 端口无关，
+  # 因此无论 $port 是多少，TCP/443 都必须放行（除非以后改用 acme.tls.altPort/DNS 验证）。
+  if command_exists ufw && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    ufw allow "$port/udp" >/dev/null
+    ufw allow 443/tcp >/dev/null
+    if [[ "$port" == 443 ]]; then
+      log "已在 UFW 放行 UDP/443 与 TCP/443（代理与证书验证同用 443）。"
+    else
+      log "已在 UFW 放行 UDP/$port（代理端口）与 TCP/443（ACME 证书验证）。"
+    fi
+  elif command_exists firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port="$port/udp" >/dev/null
+    firewall-cmd --permanent --add-port=443/tcp >/dev/null
+    firewall-cmd --reload >/dev/null
+    if [[ "$port" == 443 ]]; then
+      log '已更新 firewalld：放行 UDP/443 与 TCP/443。'
+    else
+      log "已更新 firewalld：放行 UDP/$port 与 TCP/443。"
+    fi
+  else
+    warn "未检测到活动的 UFW/firewalld；请确认 VPS 控制台安全组同时允许 UDP/$port 与 TCP/443。"
+  fi
+}
+
+write_config(){
+  local domain=$1 email=$2 password=$3 port=$4 masquerade_url=$5
+  mkdir -p /etc/hysteria
+  # 先以 600 权限创建空文件，再写入内容，避免密码短暂以默认权限落盘的窗口期。
+  install -m 600 /dev/null "$CONFIG_FILE"
+  cat >> "$CONFIG_FILE" <<EOF_CFG
+listen: :$port
+
+acme:
+  domains:
+    - $domain
+  email: $email
+  type: tls
+
+auth:
+  type: password
+  password: $password
+
+masquerade:
+  type: proxy
+  proxy:
+    url: $masquerade_url
+    rewriteHost: true
+EOF_CFG
+}
+
+start_service(){
+  systemctl daemon-reload
+  systemctl enable "$SERVICE" >/dev/null
+  systemctl restart "$SERVICE"
+  sleep 2
+  if ! systemctl is-active --quiet "$SERVICE"; then
+    journalctl --no-pager -u "$SERVICE" -n 80 >&2 || true
+    die 'Hysteria 服务启动失败，请检查上面的日志。'
+  fi
+}
+
+show_info(){
+  local domain=$1 port=$2 password=$3
+  printf '\n'
+  printf '%s\n' '========================================'
+  printf '%s\n' ' Hysteria 2 安装完成'
+  printf '%s\n' '========================================'
+  printf 'Server   : %s:%s (UDP)\n' "$domain" "$port"
+  printf 'Password : %s\n' "$password"
+  printf 'SNI      : %s\n' "$domain"
+  printf 'TLS      : ACME (TLS-ALPN，证书验证走 TCP/443)\n'
+  printf '\nHysteria2 URI:\n'
+  printf 'hysteria2://%s@%s:%s/?sni=%s#HY2\n' "$password" "$domain" "$port" "$domain"
+  if [[ "$port" != 443 ]]; then
+    printf '\n提示：客户端连接使用 UDP/%s，但服务器上 TCP/443 需保持可从公网访问，用于证书自动续期。\n' "$port"
+  fi
+  printf '\n配置文件: %s\n' "$CONFIG_FILE"
+  printf '\n服务管理:\n'
+  printf '  systemctl status %s\n' "$SERVICE"
+  printf '  systemctl restart %s\n' "$SERVICE"
+  printf '  journalctl -u %s -f\n' "$SERVICE"
+  printf '%s\n\n' '========================================'
+}
+
+install(){
+  require_root
+  check_os
+  install_deps
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    warn '检测到已有 Hysteria 配置。继续安装会覆盖配置，但会先自动备份。'
+    read -r -p '是否继续？[y/N]: ' ans
+    [[ "$ans" =~ ^[Yy]$ ]] || exit 0
+  fi
+
+  read -r -p '请输入域名: ' domain
+  validate_domain "$domain"
+  read -r -p '请输入 ACME 邮箱: ' email
+  validate_email "$email"
+  read -r -p '请输入代理监听端口（UDP）[443]: ' port
+  port=${port:-443}
+  validate_port "$port"
+  if [[ "$port" != 443 ]]; then
+    log "已选择自定义端口 UDP/$port。注意：ACME TLS-ALPN 证书验证与代理端口无关，仍需 TCP/443 可从公网访问（Hysteria 会自动在 TCP/443 单独监听用于签发/续期证书）。"
+  fi
+
+  read -r -p '伪装网站 URL [https://news.ycombinator.com/]: ' masquerade_url
+  masquerade_url=${masquerade_url:-https://news.ycombinator.com/}
+  [[ "$masquerade_url" =~ ^https://[^[:space:]]+$ ]] || die '伪装网站必须是有效的 https:// URL。'
+
+  local password
+  password=$(random_password)
+  [[ ${#password} -ge 32 ]] || die '密码生成失败。'
+
+  # 若服务当前已在运行（例如重装场景），它自己占用的端口会在 restart 时释放，
+  # 所以只在服务未运行时做端口占用检查，避免误报。
+  if ! systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
+    if port_in_use 443 tcp; then
+      die 'TCP/443 已被其他程序占用。ACME TLS-ALPN 无法签发证书，请先释放 TCP/443（与代理端口本身是否为 443 无关）。'
+    fi
+    if port_in_use "$port" udp; then
+      die "UDP/$port 已被其他程序占用，请更换端口或先释放该端口。"
+    fi
+  fi
+
+  backup_config
+  install_hysteria
+  write_config "$domain" "$email" "$password" "$port" "$masquerade_url"
+  configure_firewall "$port"
+  start_service
+  show_info "$domain" "$port" "$password"
+}
+
+update(){
+  require_root
+  check_os
+  install_deps
+  [[ -f "$CONFIG_FILE" ]] || die '未检测到配置文件，请先安装。'
+  backup_config
+  install_hysteria
+  systemctl restart "$SERVICE"
+  sleep 2
+  systemctl is-active --quiet "$SERVICE" || die '更新后服务启动失败。'
+  log 'Hysteria 已更新，配置文件保持不变。'
+  "$BIN" version || true
+}
+
+status(){
+  require_root
+  systemctl --no-pager status "$SERVICE" || true
+  printf '\n监听状态:\n'
+  if command_exists ss; then
+    local cfg_port
+    cfg_port=$(grep -m1 '^listen:' "$CONFIG_FILE" 2>/dev/null | grep -oE '[0-9]+$' || true)
+    cfg_port=${cfg_port:-443}
+    ss -lunpt | grep -E ":(${cfg_port}|443)\b" || true
+  fi
+}
+
+logs(){
+  require_root
+  journalctl --no-pager -u "$SERVICE" -n 100
+}
+
+uninstall(){
+  require_root
+  read -r -p '确定卸载 Hysteria 2？[y/N]: ' ans
+  [[ "$ans" =~ ^[Yy]$ ]] || exit 0
+  systemctl disable --now "$SERVICE" 2>/dev/null || true
+  bash <(curl -fsSL "$INSTALL_URL") --remove
+  rm -rf /etc/hysteria
+  systemctl daemon-reload
+  log 'Hysteria 服务与配置已移除；未自动修改系统防火墙规则。'
+}
+
+self_test(){
+  local cfg pw
+  trap 'rm -f "$cfg"' RETURN
+
+  pw=$(random_password)
+  [[ ${#pw} -ge 32 ]] || die 'self-test: 密码长度异常。'
+  [[ "$pw" =~ ^[A-Za-z0-9]+$ ]] || die 'self-test: 密码字符集异常。'
+
+  [[ 'hy.example.com' =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die 'self-test: 域名格式校验失败。'
+  validate_email 'test@example.com'
+  validate_port 443
+  validate_port 5203
+
+  # 场景一：默认 443 端口
+  cfg=$(mktemp)
+  cat > "$cfg" <<'EOF_CFG'
+listen: :443
+
+acme:
+  domains:
+    - hy.example.com
+  email: test@example.com
+  type: tls
+
+auth:
+  type: password
+  password: ABCDEFGHIJKLMNOPQRSTUVWXYZ012345
+
+masquerade:
+  type: proxy
+  proxy:
+    url: https://news.ycombinator.com/
+    rewriteHost: true
+EOF_CFG
+  grep -q '^listen: :443$' "$cfg" || die 'self-test: listen(443) 配置失败。'
+  grep -q '^  type: tls$' "$cfg" || die 'self-test: ACME TLS 配置失败。'
+  grep -q '^  type: password$' "$cfg" || die 'self-test: password auth 配置失败。'
+  grep -q '^    rewriteHost: true$' "$cfg" || die 'self-test: masquerade 配置失败。'
+  local parsed
+  parsed=$(grep -m1 '^listen:' "$cfg" | grep -oE '[0-9]+$')
+  [[ "$parsed" == 443 ]] || die 'self-test: status() 端口解析（443）失败。'
+  rm -f "$cfg"
+
+  # 场景二：自定义端口，验证 listen 与 status() 的端口解析逻辑一致
+  cfg=$(mktemp)
+  cat > "$cfg" <<'EOF_CFG'
+listen: :5203
+
+acme:
+  domains:
+    - hy.example.com
+  email: test@example.com
+  type: tls
+EOF_CFG
+  grep -q '^listen: :5203$' "$cfg" || die 'self-test: listen(自定义端口) 配置失败。'
+  parsed=$(grep -m1 '^listen:' "$cfg" | grep -oE '[0-9]+$')
+  [[ "$parsed" == 5203 ]] || die 'self-test: status() 端口解析（自定义端口）失败。'
+  rm -f "$cfg"
+
+  trap - RETURN
+  log 'self-test 通过：Bash 语法、输入校验、密码生成、配置模板（含自定义端口）均正常。'
+}
+
+menu(){
+  printf '\nHysteria 2 一键管理\n\n'
+  printf '1) 安装/重装\n2) 更新\n3) 查看状态\n4) 查看日志\n5) 卸载\n0) 退出\n\n'
+  read -r -p '请选择 [0-5]: ' choice
+  case "$choice" in
+    1) install;;
+    2) update;;
+    3) status;;
+    4) logs;;
+    5) uninstall;;
+    0) exit 0;;
+    *) die '无效选项。';;
+  esac
+}
+
+case "${1:-menu}" in
+  install) install;;
+  update) update;;
+  status) status;;
+  logs) logs;;
+  uninstall) uninstall;;
+  menu) menu;;
+  self-test) self_test;;
+  *) die "用法：$0 {install|update|status|logs|uninstall|menu|self-test}";;
+esac
