@@ -19,9 +19,10 @@
  * - QINGMING_DATE / SPRING_BREAK_DATE / AUTUMN_BREAK_DATE : 自定义假期日期
  * - SHOW_SCHOOL_HOLIDAYS / SHOW_FINANCE_DATES / ENABLE_PRIORITY_SORT / ENABLE_EXCLUSIVE_WEIGHT / ENABLE_WEEKEND_THEME : 功能开关
  * - SMALL_MAX_ITEMS : 小尺寸最大显示条目数，默认 11
- * - TRANSPARENT_MODE : 透明模式开关，默认 false。设为 true 时背景改为低透明度白色蒙层
- *                       （不带色相，纯 alpha），不再跟随工作日/周末/节日切换配色渐变，
- *                       让桌面壁纸透出来；其余排版、文案、计算逻辑不受影响。
+ * - TRANSPARENT_MODE : 透明模式开关，默认 false。设为 true 时不再设置任何背景属性
+ *                       （完全透明，壁纸直接透出，不叠加任何颜色/蒙层），中/大号会额外
+ *                       加一条几乎看不见的描边勾出卡片边界，小尺寸不加边框；
+ *                       其余排版、文案、计算逻辑不受影响。
  *
  * 仓库地址: https://raw.githubusercontent.com/jnlaoshu/MySelf/master/Egern/Widget/Countdown.js
  * 更新时间: 2026.08.09 23:00
@@ -359,10 +360,12 @@ export default async function (ctx) {
     colors: themeKey === "fest" ? C.bgFest : themeKey === "weekend" ? C.bgWeekend : C.bgWorkday,
     startPoint: { x: 0, y: 0 }, endPoint: { x: 1, y: 1 }
   };
-  // 透明模式：不带任何色相的低透明度白色蒙层，纯粹靠 alpha 让壁纸透出来，
-  // 不再跟随 workday/weekend/fest 主题上色（那三套是不透明配色，两者语义上互斥）
-  const transparentBackgroundColor = "rgba(255,255,255,0.08)";
-  const bgProps = transparentMode ? { backgroundColor: transparentBackgroundColor } : { backgroundGradient };
+  // 透明模式：直接不给 widget 设置任何背景属性（学习 IPPure 脚本的做法），
+  // 而不是叠一层半透明白色蒙层——这样是真正的 100% 透明，壁纸完全透出来，不带任何颜色
+  const bgProps = transparentMode ? {} : { backgroundGradient };
+  // 透明模式下用一条几乎看不见的描边勾出卡片边界（中/大号才加，小尺寸不加，跟 IPPure 一致）
+  const glassBorderColor = "rgba(255, 255, 255, 0.06)";
+  const borderProps = transparentMode ? { borderWidth: 1, borderColor: glassBorderColor } : {};
 
   // ══════════════════════════════════════════════
   //  Small 布局
@@ -532,7 +535,7 @@ export default async function (ctx) {
   rightHeaderElements.push(mkText(refreshTimeStr, layoutConfig.topFz, "medium", C.muted, { maxLines: 1 }));
 
   return {
-    type: "widget", padding, ...bgProps,
+    type: "widget", padding, ...bgProps, ...borderProps,
     children: [
       mkRow([
         mkIcon("hourglass.circle.fill", C.main, layoutConfig.titleIcz),
