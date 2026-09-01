@@ -27,7 +27,8 @@
  *   - 移除了会让 ATS 直接拦截明文 HTTP 请求的 http://ip-api.com 调用，
  *     改为直接复用前面已经拿到的落地 IP（nIp）去查 ipapi.is，少一次不稳定的外部请求
  *   - IPPure / ipapi.is 检测失败时如实显示"检测失败"（灰色），不再误显示成"低危"（绿色）
- *   - 移除了 IP2Location / DB-IP / ipregistry 三行写死的假数据（原脚本从未真正请求这三个服务）
+ *   - 保留了 IP2Location / DB-IP / ipregistry 三行展示（应用户要求恢复）；
+ *     这三行是固定展示值，不是对这三个服务的实时请求结果
  *   - ipapi.is 检测和 5 项流媒体检测合并进同一个 Promise.all 并行执行，减少总耗时
  *   - 整个渲染逻辑外层加了 try/catch 兜底，出错时显示错误卡片而不是完全空白
  */
@@ -454,6 +455,10 @@ async function renderWidget(ctx) {
   if (proxySuccess) {
     riskGrades.push({ sev: ippSev, t: `IPPure: ${riskIPPureTxt}`, known: ippKnown });
     riskGrades.push({ sev: ipapiRisk.sev, t: `ipapi: ${ipapiRisk.txt}`, known: ipapiRisk.known });
+    // 以下三项是固定展示值，并非实时请求这三个服务得出的结果
+    riskGrades.push({ sev: 0, t: 'IP2Location: 低危 (3)', known: true });
+    riskGrades.push({ sev: 0, t: 'DB-IP: 低危 (0)', known: true });
+    riskGrades.push({ sev: 0, t: 'ipregistry: 低危 (0)', known: true });
   } else {
     riskGrades.push({ sev: 4, t: '获取失败', known: true });
   }
