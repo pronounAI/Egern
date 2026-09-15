@@ -777,7 +777,7 @@ export default async function (ctx) {
   if (ctx.widgetFamily === 'systemMedium') {
     return {
       type: 'widget',
-      padding: [18, 14],
+      padding: [20, 14],
       gap: 6,
       ...bg,
       children: [
@@ -882,6 +882,8 @@ export default async function (ctx) {
         },
 
         hDivider(),
+
+        { type: 'spacer', length: 6 },   // ← 加这一行，数字越大下移越多（建议 4~8）
 
         {
           type: 'stack',
