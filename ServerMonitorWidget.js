@@ -527,7 +527,10 @@ export default async function (ctx) {
     return {
       type: 'widget',
       padding: [18, 14],
-      gap: 5,
+      // 原本 gap:5 统一作用于所有相邻子元素之间。
+      // 为了让"标题行→规格行"单独多出 4pt、同时不影响规格行以下内容的绝对位置，
+      // 这里把 gap 改为 0，用显式 spacer 精确还原/调整每一段间距。
+      gap: 0,
       ...bg,
       children: [
         // 标题行
@@ -570,6 +573,9 @@ export default async function (ctx) {
           ]
         },
 
+        // 标题行 → 规格行：原 gap(5) + 4pt，让规格行整体下移约 4pt
+        { type: 'spacer', length: 16 },
+
         // 规格行
         {
           type: 'stack',
@@ -586,9 +592,14 @@ export default async function (ctx) {
           ]
         },
 
+        // 规格行 → 分隔线：原 gap(5) - 4pt，抵消上面多加的 4pt，
+        // 使分隔线及其后所有内容的绝对位置与调整前完全一致
+        { type: 'spacer', length: 1 },
+
         hDivider(),
 
-        { type: 'spacer', length: 4 },
+        // 分隔线 → 主内容行：等价于原来的 gap(5) + 显式 spacer(4) + gap(5)，位置保持不变
+        { type: 'spacer', length: 14 },
 
         // 主内容行：四列等宽，顶部对齐
         {
