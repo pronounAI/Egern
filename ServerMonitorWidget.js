@@ -590,16 +590,33 @@ export default async function (ctx) {
 
         { type: 'spacer', length: 4 },
 
-        // 主内容行：四列顶部对齐，NET/DISK 字体与 CPU 一致
+        // 主内容行：四列等宽，顶部对齐
         {
           type: 'stack',
           direction: 'row',
           alignItems: 'start',
-          gap: 10,
+          gap: 6,
           children: [
-            gauge('CPU', d.cpuPct, 48),
-            gauge('RAM', d.memPct, 48),
-
+            // CPU
+            {
+              type: 'stack',
+              direction: 'column',
+              flex: 1,
+              alignItems: 'center',
+              children: [
+                gauge('CPU', d.cpuPct, 48)
+              ]
+            },
+            // RAM
+            {
+              type: 'stack',
+              direction: 'column',
+              flex: 1,
+              alignItems: 'center',
+              children: [
+                gauge('RAM', d.memPct, 48)
+              ]
+            },
             // NET
             {
               type: 'stack',
@@ -611,14 +628,13 @@ export default async function (ctx) {
                 {
                   type: 'text',
                   text: 'NET',
-                  font: { size: 'caption1', weight: 'medium' },  // 与 CPU 相同
+                  font: { size: 'caption1', weight: 'medium' },
                   textColor: C.dim
                 },
                 statLine('arrow.up.circle', ...fmtBytesParts(d.txRate), 12),
                 statLine('arrow.down.circle', ...fmtBytesParts(d.rxRate), 12)
               ]
             },
-
             // DISK
             {
               type: 'stack',
@@ -630,7 +646,7 @@ export default async function (ctx) {
                 {
                   type: 'text',
                   text: 'DISK',
-                  font: { size: 'caption1', weight: 'medium' },  // 与 CPU 相同
+                  font: { size: 'caption1', weight: 'medium' },
                   textColor: C.dim
                 },
                 statLine('r.circle', ...fmtBytesParts(d.diskRd), 12),
