@@ -15,7 +15,6 @@ export default async function (ctx) {
     return Math.round(b) + 'B';
   };
 
-  // 字节/秒 → 数字与单位分开返回，便于分别设置样式，如 ['82', 'B/s']
   const fmtBytesParts = b => {
     if (b >= 1e12) return [(b / 1e12).toFixed(1), 'TB/s'];
     if (b >= 1e9)  return [(b / 1e9).toFixed(1), 'GB/s'];
@@ -24,7 +23,7 @@ export default async function (ctx) {
     return [Math.round(b).toString(), 'B/s'];
   };
 
-  // ---------- 数据获取（保持原逻辑） ----------
+  // ---------- 数据获取 ----------
   let d;
   try {
     const { host, username, password, privateKey, port } = ctx.env;
@@ -84,23 +83,16 @@ export default async function (ctx) {
     }
 
     ctx.storage.setJSON('_cpu', { t: cpuTotal, i: cpuIdle });
-
     cpuPct = Math.max(0, Math.min(100, cpuPct || 0));
 
     const cpuHist = ctx.storage.getJSON('_cpuH') || [];
     cpuHist.push(cpuPct);
-
     while (cpuHist.length > 20) cpuHist.shift();
-
     ctx.storage.setJSON('_cpuH', cpuHist);
 
     // Memory
-    const memLine =
-      (p[4] || '').split('\n').find(l => /^Mem:/.test(l)) || '';
-
-    const swapLine =
-      (p[4] || '').split('\n').find(l => /^Swap:/.test(l)) || '';
-
+    const memLine = (p[4] || '').split('\n').find(l => /^Mem:/.test(l)) || '';
+    const swapLine = (p[4] || '').split('\n').find(l => /^Swap:/.test(l)) || '';
     const mm = memLine.split(/\s+/);
     const sm = swapLine.split(/\s+/);
 
@@ -110,14 +102,11 @@ export default async function (ctx) {
 
     const swapTotal = Number(sm[1]) || 0;
     const swapUsed = Number(sm[2]) || 0;
-    const swapPct =
-      swapTotal > 0 ? Math.round((swapUsed / swapTotal) * 100) : 0;
+    const swapPct = swapTotal > 0 ? Math.round((swapUsed / swapTotal) * 100) : 0;
 
     const memHist = ctx.storage.getJSON('_memH') || [];
     memHist.push(memPct);
-
     while (memHist.length > 20) memHist.shift();
-
     ctx.storage.setJSON('_memH', memHist);
 
     // Disk
@@ -136,30 +125,22 @@ export default async function (ctx) {
 
     const prevNet = ctx.storage.getJSON('_net');
     const now = Date.now();
-
     let rxRate = 0;
     let txRate = 0;
 
     if (prevNet && prevNet.ts) {
       const el = (now - prevNet.ts) / 1000;
-
       if (el > 0 && el < 3600) {
         rxRate = Math.max(0, (netRx - prevNet.rx) / el);
         txRate = Math.max(0, (netTx - prevNet.tx) / el);
       }
     }
 
-    ctx.storage.setJSON('_net', {
-      rx: netRx,
-      tx: netTx,
-      ts: now
-    });
+    ctx.storage.setJSON('_net', { rx: netRx, tx: netTx, ts: now });
 
     // Temperature
     const tempRaw = parseInt(p[9]) || 0;
-    const temp = tempRaw > 1000
-      ? Math.round(tempRaw / 1000)
-      : tempRaw;
+    const temp = tempRaw > 1000 ? Math.round(tempRaw / 1000) : tempRaw;
 
     // Disk I/O
     const dio = (p[10] || '0 0').split(' ');
@@ -167,122 +148,49 @@ export default async function (ctx) {
     const dwt = Number(dio[1]) || 0;
 
     const prevDsk = ctx.storage.getJSON('_dsk');
-
     let diskRd = 0;
     let diskWr = 0;
 
     if (prevDsk && prevDsk.ts) {
       const el = (now - prevDsk.ts) / 1000;
-
       if (el > 0 && el < 3600) {
         diskRd = Math.max(0, (drt - prevDsk.r) / el);
         diskWr = Math.max(0, (dwt - prevDsk.w) / el);
       }
     }
 
-    ctx.storage.setJSON('_dsk', {
-      r: drt,
-      w: dwt,
-      ts: now
-    });
+    ctx.storage.setJSON('_dsk', { r: drt, w: dwt, ts: now });
 
     const procs = parseInt(p[11]) || 0;
 
     d = {
-      hostname,
-      load,
-      uptime,
-      uptimeDays,
-      cpuPct,
-      cpuHist,
-      cores,
-      kernel,
-      memTotal,
-      memUsed,
-      memPct,
-      memHist,
-      swapTotal,
-      swapUsed,
-      swapPct,
-      diskTotal,
-      diskUsed,
-      diskPct,
-      diskRd,
-      diskWr,
-      rxRate,
-      txRate,
-      netRx,
-      netTx,
-      temp,
-      procs
+      hostname, load, uptime, uptimeDays, cpuPct, cpuHist, cores, kernel,
+      memTotal, memUsed, memPct, memHist, swapTotal, swapUsed, swapPct,
+      diskTotal, diskUsed, diskPct, diskRd, diskWr,
+      rxRate, txRate, netRx, netTx, temp, procs
     };
 
   } catch (e) {
-    d = {
-      error: String(e.message || e)
-    };
+    d = { error: String(e.message || e) };
   }
 
-  // ---------- 主题（自适应深浅色 + 纯透明模式） ----------
+  // ---------- 主题 ----------
   const glass = ['1', 'true', 'yes', 'on'].includes(
     String(ctx.env.glass || '').toLowerCase()
   );
 
   const C = {
-    barBg: {
-      light: '#E5E5EA',
-      dark: '#3A3A3C'
-    },
-
-    divider: {
-      light: '#0000001A',
-      dark: '#FFFFFF1F'
-    },
-
-    text: {
-      light: '#1C1C1E',
-      dark: '#F5F5F7'
-    },
-
-    muted: {
-      light: '#8E8E93',
-      dark: '#8E8E93'
-    },
-
-    dim: {
-      light: '#AEAEB2',
-      dark: '#636366'
-    },
-
-    cpu: {
-      light: '#34C759',
-      dark: '#30D158'
-    },
-
-    mem: {
-      light: '#007AFF',
-      dark: '#0A84FF'
-    },
-
-    disk: {
-      light: '#FF9500',
-      dark: '#FF9F0A'
-    },
-
-    net: {
-      light: '#FF2D55',
-      dark: '#FF375F'
-    },
-
-    temp: {
-      light: '#FF3B30',
-      dark: '#FF453A'
-    },
-
-    warn: {
-      light: '#FF9500',
-      dark: '#FF9F0A'
-    }
+    barBg:  { light: '#E5E5EA', dark: '#3A3A3C' },
+    divider:{ light: '#0000001A', dark: '#FFFFFF1F' },
+    text:   { light: '#1C1C1E', dark: '#F5F5F7' },
+    muted:  { light: '#8E8E93', dark: '#8E8E93' },
+    dim:    { light: '#AEAEB2', dark: '#636366' },
+    cpu:    { light: '#34C759', dark: '#30D158' },
+    mem:    { light: '#007AFF', dark: '#0A84FF' },
+    disk:   { light: '#FF9500', dark: '#FF9F0A' },
+    net:    { light: '#FF2D55', dark: '#FF375F' },
+    temp:   { light: '#FF3B30', dark: '#FF453A' },
+    warn:   { light: '#FF9500', dark: '#FF9F0A' }
   };
 
   const pctColor = (pct, lo = 60, hi = 85) => {
@@ -297,23 +205,11 @@ export default async function (ctx) {
         backgroundGradient: {
           type: 'linear',
           colors: [
-            {
-              light: '#F8F9FB',
-              dark: '#0D0D0F'
-            },
-            {
-              light: '#EDEEF2',
-              dark: '#1C1C1E'
-            }
+            { light: '#F8F9FB', dark: '#0D0D0F' },
+            { light: '#EDEEF2', dark: '#1C1C1E' }
           ],
-          startPoint: {
-            x: 0,
-            y: 0
-          },
-          endPoint: {
-            x: 1,
-            y: 1
-          }
+          startPoint: { x: 0, y: 0 },
+          endPoint: { x: 1, y: 1 }
         }
       };
 
@@ -325,69 +221,27 @@ export default async function (ctx) {
     children: []
   });
 
-  // ---------- 环形进度表盘 ----------
-  //
-  // 这里的关键修改：
-  //
-  // 1. SVG 只负责绘制圆环
-  // 2. 百分比文字不再由 SVG 绘制
-  // 3. 百分比改成 Egern 原生 text
-  // 4. 使用 Egern 的 light / dark 自适应颜色
-  //
-  // 这样可以确保：
-  // 浅色模式 → 黑色百分比
-  // 深色模式 → 白色百分比
-  //
-  // 同时删除原来的深色中心圆盘。
-
   const gaugeSvg = pct => {
     const p = Math.max(0, Math.min(100, pct));
-
     const r = 40;
     const c = 2 * Math.PI * r;
     const offset = c * (1 - p / 100);
 
     const svg =
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">` +
-
       `<defs>` +
-
       `<linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">` +
       `<stop offset="0%" stop-color="#0A84FF"/>` +
       `<stop offset="100%" stop-color="#30D158"/>` +
       `</linearGradient>` +
-
       `</defs>` +
-
-      // 环形底轨
-      `<circle ` +
-      `cx="50" cy="50" r="${r}" ` +
-      `fill="none" ` +
-      `stroke="#8E8E9355" ` +
-      `stroke-width="9"/>` +
-
-      // 彩色进度环
-      `<circle ` +
-      `cx="50" cy="50" r="${r}" ` +
-      `fill="none" ` +
-      `stroke="url(#g)" ` +
-      `stroke-width="9" ` +
-      `stroke-linecap="round" ` +
-      `stroke-dasharray="${c.toFixed(2)}" ` +
-      `stroke-dashoffset="${offset.toFixed(2)}" ` +
-      `transform="rotate(-90 50 50)"/>` +
-
+      `<circle cx="50" cy="50" r="${r}" fill="none" stroke="#8E8E9355" stroke-width="9"/>` +
+      `<circle cx="50" cy="50" r="${r}" fill="none" stroke="url(#g)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}" transform="rotate(-90 50 50)"/>` +
       `</svg>`;
 
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   };
 
-  // 圆环表盘
-  //
-  // 百分比文字使用 Egern 原生 text，
-  // 因此可以可靠地使用：
-  // light → #000000
-  // dark  → #FFFFFF
   const gauge = (label, pct, size = 76) => ({
     type: 'stack',
     direction: 'column',
@@ -397,13 +251,9 @@ export default async function (ctx) {
       {
         type: 'text',
         text: label,
-        font: {
-          size: 'caption1',
-          weight: 'medium'
-        },
+        font: { size: 'caption1', weight: 'medium' },
         textColor: C.dim
       },
-
       {
         type: 'stack',
         width: size,
@@ -412,34 +262,20 @@ export default async function (ctx) {
         direction: 'row',
         alignItems: 'center',
         children: [
-          {
-            type: 'spacer'
-          },
-
+          { type: 'spacer' },
           {
             type: 'text',
             text: `${Math.round(pct)}%`,
-            font: {
-              size: 12,
-              weight: 'bold',
-              family: 'Menlo'
-            },
-            textColor: {
-              light: '#000000',
-              dark: '#FFFFFF'
-            },
+            font: { size: 12, weight: 'bold', family: 'Menlo' },
+            textColor: { light: '#000000', dark: '#FFFFFF' },
             textAlign: 'center'
           },
-
-          {
-            type: 'spacer'
-          }
+          { type: 'spacer' }
         ]
       }
     ]
   });
 
-  // 规格项：图标 + 文字
   const specItem = (icon, text, size = 13) => ({
     type: 'stack',
     direction: 'row',
@@ -456,16 +292,12 @@ export default async function (ctx) {
       {
         type: 'text',
         text,
-        font: {
-          size: 'caption1',
-          weight: 'medium'
-        },
+        font: { size: 'caption1', weight: 'medium' },
         textColor: C.muted
       }
     ]
   });
 
-  // 统计行：图标 + 数值 + 单位
   const statLine = (icon, value, unit, size = 16) => ({
     type: 'stack',
     direction: 'row',
@@ -482,19 +314,13 @@ export default async function (ctx) {
       {
         type: 'text',
         text: value,
-        font: {
-          size,
-          weight: 'bold',
-          family: 'Menlo'
-        },
+        font: { size, weight: 'bold', family: 'Menlo' },
         textColor: C.text
       },
       {
         type: 'text',
         text: unit,
-        font: {
-          size: 11
-        },
+        font: { size: 11 },
         textColor: C.muted
       }
     ]
@@ -524,10 +350,7 @@ export default async function (ctx) {
             {
               type: 'text',
               text: '连接失败',
-              font: {
-                size: 'headline',
-                weight: 'bold'
-              },
+              font: { size: 'headline', weight: 'bold' },
               textColor: C.text
             }
           ]
@@ -535,9 +358,7 @@ export default async function (ctx) {
         {
           type: 'text',
           text: d.error,
-          font: {
-            size: 'caption1'
-          },
+          font: { size: 'caption1' },
           textColor: C.muted,
           maxLines: 4
         }
@@ -545,21 +366,9 @@ export default async function (ctx) {
     };
   }
 
-  // 所有正常状态共用的标题信息
-  const worstPct = Math.max(
-    d.cpuPct,
-    d.memPct,
-    d.diskPct
-  );
-
+  const worstPct = Math.max(d.cpuPct, d.memPct, d.diskPct);
   const statusColor = pctColor(worstPct);
-
-  const statusText =
-    worstPct >= 85
-      ? 'Critical'
-      : worstPct >= 60
-        ? 'Busy'
-        : 'Online';
+  const statusText = worstPct >= 85 ? 'Critical' : worstPct >= 60 ? 'Busy' : 'Online';
 
   const flag = ctx.env.flag || '';
   const displayName = ctx.env.displayName || d.hostname;
@@ -568,12 +377,7 @@ export default async function (ctx) {
   if (ctx.widgetFamily === 'accessoryInline') {
     return {
       type: 'widget',
-      children: [
-        {
-          type: 'text',
-          text: `${d.hostname}  CPU ${d.cpuPct}%  MEM ${d.memPct}%`
-        }
-      ]
+      children: [{ type: 'text', text: `${d.hostname}  CPU ${d.cpuPct}%  MEM ${d.memPct}%` }]
     };
   }
 
@@ -582,31 +386,22 @@ export default async function (ctx) {
       type: 'widget',
       padding: 4,
       children: [
-        {
-          type: 'spacer'
-        },
+        { type: 'spacer' },
         {
           type: 'text',
           text: `${d.cpuPct}%`,
-          font: {
-            size: 'title2',
-            weight: 'bold'
-          },
+          font: { size: 'title2', weight: 'bold' },
           textAlign: 'center',
           textColor: C.text
         },
         {
           type: 'text',
           text: 'CPU',
-          font: {
-            size: 'caption2'
-          },
+          font: { size: 'caption2' },
           textAlign: 'center',
           textColor: C.muted
         },
-        {
-          type: 'spacer'
-        }
+        { type: 'spacer' }
       ]
     };
   }
@@ -633,10 +428,7 @@ export default async function (ctx) {
             {
               type: 'text',
               text: displayName,
-              font: {
-                size: 'headline',
-                weight: 'bold'
-              },
+              font: { size: 'headline', weight: 'bold' },
               textColor: C.text,
               maxLines: 1
             }
@@ -645,19 +437,13 @@ export default async function (ctx) {
         {
           type: 'text',
           text: `CPU ${d.cpuPct}%  MEM ${d.memPct}%  DSK ${d.diskPct}%`,
-          font: {
-            size: 11,
-            family: 'Menlo'
-          },
+          font: { size: 11, family: 'Menlo' },
           textColor: C.text
         },
         {
           type: 'text',
           text: `↓${fmtBytes(d.rxRate)}/s  ↑${fmtBytes(d.txRate)}/s`,
-          font: {
-            size: 11,
-            family: 'Menlo'
-          },
+          font: { size: 11, family: 'Menlo' },
           textColor: C.muted
         }
       ]
@@ -679,13 +465,7 @@ export default async function (ctx) {
           gap: 5,
           children: [
             flag
-              ? {
-                  type: 'text',
-                  text: flag,
-                  font: {
-                    size: 14
-                  }
-                }
+              ? { type: 'text', text: flag, font: { size: 14 } }
               : {
                   type: 'image',
                   src: 'sf-symbol:server.rack',
@@ -693,23 +473,15 @@ export default async function (ctx) {
                   width: 12,
                   height: 12
                 },
-
             {
               type: 'text',
               text: displayName,
-              font: {
-                size: 'caption1',
-                weight: 'bold'
-              },
+              font: { size: 'caption1', weight: 'bold' },
               textColor: C.text,
               maxLines: 1,
               minScale: 0.8
             },
-
-            {
-              type: 'spacer'
-            },
-
+            { type: 'spacer' },
             {
               type: 'image',
               src: 'sf-symbol:circle.fill',
@@ -719,68 +491,46 @@ export default async function (ctx) {
             }
           ]
         },
-
         {
           type: 'stack',
           direction: 'row',
           children: [
-            {
-              type: 'spacer'
-            },
-
+            { type: 'spacer' },
             gauge('CPU', d.cpuPct, 64),
-
-            {
-              type: 'spacer'
-            }
+            { type: 'spacer' }
           ]
         },
-
         {
           type: 'stack',
           direction: 'row',
           children: [
-            {
-              type: 'spacer'
-            },
-
+            { type: 'spacer' },
             {
               type: 'stack',
               direction: 'row',
               alignItems: 'center',
               gap: 14,
               children: [
-                specItem(
-                  'memorychip',
-                  `${d.memPct}%`,
-                  12
-                ),
-
-                specItem(
-                  'internaldrive',
-                  `${d.diskPct}%`,
-                  12
-                )
+                specItem('memorychip', `${d.memPct}%`, 12),
+                specItem('internaldrive', `${d.diskPct}%`, 12)
               ]
             },
-
-            {
-              type: 'spacer'
-            }
+            { type: 'spacer' }
           ]
         }
       ]
     };
   }
 
-  // ---------- 中号 ----------
+  // ---------- 中号（最终调整版） ----------
   if (ctx.widgetFamily === 'systemMedium') {
     return {
       type: 'widget',
-      padding: [20, 14],
-      gap: 6,
+      padding: [18, 14],
+      gap: 5,
       ...bg,
       children: [
+        // 标题行
         {
           type: 'stack',
           direction: 'row',
@@ -788,13 +538,7 @@ export default async function (ctx) {
           gap: 6,
           children: [
             flag
-              ? {
-                  type: 'text',
-                  text: flag,
-                  font: {
-                    size: 16
-                  }
-                }
+              ? { type: 'text', text: flag, font: { size: 16 } }
               : {
                   type: 'image',
                   src: 'sf-symbol:server.rack',
@@ -802,22 +546,14 @@ export default async function (ctx) {
                   width: 15,
                   height: 15
                 },
-
             {
               type: 'text',
               text: displayName,
-              font: {
-                size: 'subheadline',
-                weight: 'bold'
-              },
+              font: { size: 'subheadline', weight: 'bold' },
               textColor: C.text,
               maxLines: 1
             },
-
-            {
-              type: 'spacer'
-            },
-
+            { type: 'spacer' },
             {
               type: 'image',
               src: 'sf-symbol:circle.fill',
@@ -825,141 +561,80 @@ export default async function (ctx) {
               width: 7,
               height: 7
             },
-
             {
               type: 'text',
               text: statusText,
-              font: {
-                size: 'caption2',
-                weight: 'medium'
-              },
+              font: { size: 'caption2', weight: 'medium' },
               textColor: C.text
             }
           ]
         },
 
+        // 规格行
         {
           type: 'stack',
           direction: 'row',
           alignItems: 'center',
           children: [
-            specItem(
-              'cpu',
-              `${d.cores} Cores`,
-              10
-            ),
-
-            {
-              type: 'spacer'
-            },
-
-            specItem(
-              'memorychip',
-              fmtBytes(d.memTotal),
-              10
-            ),
-
-            {
-              type: 'spacer'
-            },
-
-            specItem(
-              'internaldrive',
-              fmtBytes(d.diskTotal),
-              10
-            ),
-
-            {
-              type: 'spacer'
-            },
-
-            specItem(
-              'power',
-              `${d.uptimeDays}d`,
-              10
-            )
+            specItem('cpu', `${d.cores} Cores`, 10),
+            { type: 'spacer' },
+            specItem('memorychip', fmtBytes(d.memTotal), 10),
+            { type: 'spacer' },
+            specItem('internaldrive', fmtBytes(d.diskTotal), 10),
+            { type: 'spacer' },
+            specItem('power', `${d.uptimeDays}d`, 10)
           ]
         },
 
         hDivider(),
 
-        { type: 'spacer', length: 6 },   // ← 加这一行，数字越大下移越多（建议 4~8）
+        { type: 'spacer', length: 4 },
 
+        // 主内容行：四列顶部对齐，NET/DISK 字体与 CPU 一致
         {
           type: 'stack',
           direction: 'row',
-          alignItems: 'center',
+          alignItems: 'start',
           gap: 10,
           children: [
-            gauge(
-              'CPU',
-              d.cpuPct,
-              48
-            ),
+            gauge('CPU', d.cpuPct, 48),
+            gauge('RAM', d.memPct, 48),
 
-            gauge(
-              'RAM',
-              d.memPct,
-              48
-            ),
-
+            // NET
             {
               type: 'stack',
               direction: 'column',
               flex: 1,
-              gap: 4,
+              gap: 9,
+              alignItems: 'center',
               children: [
                 {
                   type: 'text',
                   text: 'NET',
-                  font: {
-                    size: 10,
-                    weight: 'medium'
-                  },
+                  font: { size: 'caption1', weight: 'medium' },  // 与 CPU 相同
                   textColor: C.dim
                 },
-
-                statLine(
-                  'arrow.up.circle',
-                  ...fmtBytesParts(d.txRate),
-                  13
-                ),
-
-                statLine(
-                  'arrow.down.circle',
-                  ...fmtBytesParts(d.rxRate),
-                  13
-                )
+                statLine('arrow.up.circle', ...fmtBytesParts(d.txRate), 12),
+                statLine('arrow.down.circle', ...fmtBytesParts(d.rxRate), 12)
               ]
             },
 
+            // DISK
             {
               type: 'stack',
               direction: 'column',
               flex: 1,
-              gap: 4,
+              gap: 9,
+              alignItems: 'center',
               children: [
                 {
                   type: 'text',
                   text: 'DISK',
-                  font: {
-                    size: 10,
-                    weight: 'medium'
-                  },
+                  font: { size: 'caption1', weight: 'medium' },  // 与 CPU 相同
                   textColor: C.dim
                 },
-
-                statLine(
-                  'r.circle',
-                  ...fmtBytesParts(d.diskRd),
-                  13
-                ),
-
-                statLine(
-                  'w.circle',
-                  ...fmtBytesParts(d.diskWr),
-                  13
-                )
+                statLine('r.circle', ...fmtBytesParts(d.diskRd), 12),
+                statLine('w.circle', ...fmtBytesParts(d.diskWr), 12)
               ]
             }
           ]
@@ -982,13 +657,7 @@ export default async function (ctx) {
         gap: 8,
         children: [
           flag
-            ? {
-                type: 'text',
-                text: flag,
-                font: {
-                  size: 24
-                }
-              }
+            ? { type: 'text', text: flag, font: { size: 24 } }
             : {
                 type: 'image',
                 src: 'sf-symbol:server.rack',
@@ -996,22 +665,14 @@ export default async function (ctx) {
                 width: 24,
                 height: 24
               },
-
           {
             type: 'text',
             text: displayName,
-            font: {
-              size: 22,
-              weight: 'bold'
-            },
+            font: { size: 22, weight: 'bold' },
             textColor: C.text,
             maxLines: 1
           },
-
-          {
-            type: 'spacer'
-          },
-
+          { type: 'spacer' },
           {
             type: 'image',
             src: 'sf-symbol:circle.fill',
@@ -1019,76 +680,37 @@ export default async function (ctx) {
             width: 9,
             height: 9
           },
-
           {
             type: 'text',
             text: statusText,
-            font: {
-              size: 'subheadline',
-              weight: 'medium'
-            },
+            font: { size: 'subheadline', weight: 'medium' },
             textColor: C.text
           }
         ]
       },
-
       {
         type: 'stack',
         direction: 'row',
         alignItems: 'center',
         children: [
-          specItem(
-            'cpu',
-            `${d.cores} Cores`
-          ),
-
-          {
-            type: 'spacer'
-          },
-
-          specItem(
-            'memorychip',
-            fmtBytes(d.memTotal)
-          ),
-
-          {
-            type: 'spacer'
-          },
-
-          specItem(
-            'internaldrive',
-            fmtBytes(d.diskTotal)
-          ),
-
-          {
-            type: 'spacer'
-          },
-
-          specItem(
-            'power',
-            `${d.uptimeDays} Days`
-          )
+          specItem('cpu', `${d.cores} Cores`),
+          { type: 'spacer' },
+          specItem('memorychip', fmtBytes(d.memTotal)),
+          { type: 'spacer' },
+          specItem('internaldrive', fmtBytes(d.diskTotal)),
+          { type: 'spacer' },
+          specItem('power', `${d.uptimeDays} Days`)
         ]
       },
-
       hDivider(),
-
       {
         type: 'stack',
         direction: 'row',
         alignItems: 'center',
         gap: 16,
         children: [
-          gauge(
-            'CPU',
-            d.cpuPct
-          ),
-
-          gauge(
-            'RAM',
-            d.memPct
-          ),
-
+          gauge('CPU', d.cpuPct),
+          gauge('RAM', d.memPct),
           {
             type: 'stack',
             direction: 'column',
@@ -1098,25 +720,13 @@ export default async function (ctx) {
               {
                 type: 'text',
                 text: 'Network',
-                font: {
-                  size: 'subheadline',
-                  weight: 'medium'
-                },
+                font: { size: 'subheadline', weight: 'medium' },
                 textColor: C.dim
               },
-
-              statLine(
-                'arrow.up.circle',
-                ...fmtBytesParts(d.txRate)
-              ),
-
-              statLine(
-                'arrow.down.circle',
-                ...fmtBytesParts(d.rxRate)
-              )
+              statLine('arrow.up.circle', ...fmtBytesParts(d.txRate)),
+              statLine('arrow.down.circle', ...fmtBytesParts(d.rxRate))
             ]
           },
-
           {
             type: 'stack',
             direction: 'column',
@@ -1126,22 +736,11 @@ export default async function (ctx) {
               {
                 type: 'text',
                 text: 'Disk',
-                font: {
-                  size: 'subheadline',
-                  weight: 'medium'
-                },
+                font: { size: 'subheadline', weight: 'medium' },
                 textColor: C.dim
               },
-
-              statLine(
-                'r.circle',
-                ...fmtBytesParts(d.diskRd)
-              ),
-
-              statLine(
-                'w.circle',
-                ...fmtBytesParts(d.diskWr)
-              )
+              statLine('r.circle', ...fmtBytesParts(d.diskRd)),
+              statLine('w.circle', ...fmtBytesParts(d.diskWr))
             ]
           }
         ]
