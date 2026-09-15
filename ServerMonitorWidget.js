@@ -777,7 +777,7 @@ export default async function (ctx) {
   if (ctx.widgetFamily === 'systemMedium') {
     return {
       type: 'widget',
-      padding: [10, 14],
+      padding: [18, 14],
       gap: 6,
       ...bg,
       children: [
