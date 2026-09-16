@@ -4,6 +4,17 @@
 //   glass       = 1/true/yes/on → 完全透明模式，不设置任何背景（默认关闭，使用渐变深色/浅色背景）
 //   flag        = 任意 emoji，如 🇸🇬  → 大号组件标题栏左侧显示的国旗/图标（默认显示服务器图标）
 //   displayName = 自定义名称，如 "Oracle Singapore" → 大号组件标题（默认使用主机名）
+//
+//   —— 中号组件（systemMedium）三处间距，可通过环境变量单独调节 ——
+//   gapTitleToSpec    = 标题行 → 规格行 的间距（默认 16）
+//   gapSpecToDivider  = 规格行 → 分隔线 的间距（默认 1）
+//   gapDividerToMain  = 分隔线 → 主内容行(CPU/RAM/NET/DISK) 的间距（默认 14）
+//
+//   —— 中号组件 CPU/RAM 圆环大小、标题行边距、内容间距，可通过环境变量单独调节 ——
+//   medGaugeSize          = CPU/RAM 圆环直径（默认 48）
+//   medTopPadding         = 标题行(🇲🇾AWS Malaysia) 到组件上边缘的间距（默认 18）
+//   medLabelToContentGap  = CPU/RAM/NET/DISK 标题行 → 下方内容行(红圈内) 的间距（默认 8）
+//   以上几项无论怎么调，CPU/RAM/NET/DISK 四列的标题行、内容行都会保持整齐对齐。
 
 export default async function (ctx) {
   // ---------- 工具函数 ----------
@@ -21,6 +32,14 @@ export default async function (ctx) {
     if (b >= 1e6)  return [(b / 1e6).toFixed(1), 'MB/s'];
     if (b >= 1e3)  return [(b / 1e3).toFixed(1), 'KB/s'];
     return [Math.round(b).toString(), 'B/s'];
+  };
+
+  // 安全解析数字型环境变量，非法/缺省时回退到默认值
+  const envNum = (key, fallback) => {
+    const raw = ctx.env[key];
+    if (raw === undefined || raw === null || raw === '') return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : fallback;
   };
 
   // ---------- 数据获取 ----------
@@ -242,7 +261,9 @@ export default async function (ctx) {
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   };
 
-  const gauge = (label, pct, size = 76) => ({
+  // fontSize 为新增可选参数（默认 12，与原来的写死值保持一致），
+  // 小号/大号组件调用时不传该参数，行为与之前完全相同。
+  const gauge = (label, pct, size = 76, fontSize = 12) => ({
     type: 'stack',
     direction: 'column',
     alignItems: 'center',
@@ -266,13 +287,36 @@ export default async function (ctx) {
           {
             type: 'text',
             text: `${Math.round(pct)}%`,
-            font: { size: 12, weight: 'bold', family: 'Menlo' },
+            font: { size: fontSize, weight: 'bold', family: 'Menlo' },
             textColor: { light: '#000000', dark: '#FFFFFF' },
             textAlign: 'center'
           },
           { type: 'spacer' }
         ]
       }
+    ]
+  });
+
+  // 不带标题的圆环，只画圆环本身，供中号组件的"共享标题行 + 共享内容行"布局使用。
+  // 圆环容器的 width/height 直接等于 size，不受 fontSize 影响，
+  // 所以改字体大小不会改变圆环的上下占位高度。
+  const gaugeCircleOnly = (pct, size, fontSize) => ({
+    type: 'stack',
+    width: size,
+    height: size,
+    backgroundImage: gaugeSvg(pct),
+    direction: 'row',
+    alignItems: 'center',
+    children: [
+      { type: 'spacer' },
+      {
+        type: 'text',
+        text: `${Math.round(pct)}%`,
+        font: { size: fontSize, weight: 'bold', family: 'Menlo' },
+        textColor: { light: '#000000', dark: '#FFFFFF' },
+        textAlign: 'center'
+      },
+      { type: 'spacer' }
     ]
   });
 
@@ -298,7 +342,10 @@ export default async function (ctx) {
     ]
   });
 
-  const statLine = (icon, value, unit, size = 16) => ({
+  // fontSize  = 数值文字大小（原来的 size 参数，默认 16，与旧行为一致）
+  // iconSize  = 图标大小，不传时按旧公式 fontSize-1 计算（与旧行为一致）
+  // unitSize  = 单位文字大小（原来写死 11，现在可单独传参覆盖）
+  const statLine = (icon, value, unit, fontSize = 16, iconSize = fontSize - 1, unitSize = 11) => ({
     type: 'stack',
     direction: 'row',
     alignItems: 'center',
@@ -308,19 +355,19 @@ export default async function (ctx) {
         type: 'image',
         src: `sf-symbol:${icon}`,
         color: C.dim,
-        width: size - 1,
-        height: size - 1
+        width: iconSize,
+        height: iconSize
       },
       {
         type: 'text',
         text: value,
-        font: { size, weight: 'bold', family: 'Menlo' },
+        font: { size: fontSize, weight: 'bold', family: 'Menlo' },
         textColor: C.text
       },
       {
         type: 'text',
         text: unit,
-        font: { size: 11 },
+        font: { size: unitSize },
         textColor: C.muted
       }
     ]
@@ -522,17 +569,78 @@ export default async function (ctx) {
     };
   }
 
-  // ---------- 中号（最终调整版） ----------
+  // ---------- 中号（最终调整版，三处间距可通过环境变量控制） ----------
   if (ctx.widgetFamily === 'systemMedium') {
+    // 三处可调间距，对应截图中标注的 1 / 2 / 3：
+    //   1) 标题行 → 规格行
+    //   2) 规格行 → 分隔线
+    //   3) 分隔线 → 主内容行 (CPU/RAM/NET/DISK)
+    // 未设置对应环境变量时，回退到原来的默认值（16 / 1 / 14）
+    const gapTitleToSpec   = envNum('gapTitleToSpec', 16);
+    const gapSpecToDivider = envNum('gapSpecToDivider', 1);
+    const gapDividerToMain = envNum('gapDividerToMain', 14);
+
+    // CPU/RAM 圆环直径可通过环境变量调节；圆环内字体、NET/DISK 数值与单位字体固定为默认值。
+    const medGaugeSize     = envNum('medGaugeSize', 48);
+    const medGaugeFontSize = 12;
+    const medStatValueFontSize = 12;
+    const medStatUnitFontSize  = 11;
+    const medStatIconSize      = 12; // 图标大小固定，不随字体变化，避免图标忽大忽小
+
+    // 标题行与组件上边缘的间距、CPU/RAM/NET/DISK 标题行与下方内容行的间距，均可调节。
+    const medTopPadding      = envNum('medTopPadding', 18);
+    const medLabelToContentGap = envNum('medLabelToContentGap', 8);
+
+    // 内容行的统一高度：取"圆环直径"与"NET/DISK 两行文字块的估算高度"中较大的一个，
+    // 这样无论圆环多大、字体多大，四列都能在同一个行高里垂直居中，顶部/底部始终对齐。
+    const statLineEstHeight = Math.max(medStatValueFontSize, medStatUnitFontSize, medStatIconSize) + 6;
+    const statGap = 9;
+    const statBlockHeight = statLineEstHeight * 2 + statGap;
+    const mainRowHeight = Math.max(medGaugeSize, statBlockHeight);
+
+    // 内容行里每一列的容器：固定 mainRowHeight 高度，内容用一对弹性 spacer 夹住，
+    // 天然垂直居中，字体变大变小只会改变 spacer 分到的空间，不会改变整列的高度和对齐点。
+    const contentCell = content => ({
+      type: 'stack',
+      direction: 'column',
+      flex: 1,
+      height: mainRowHeight,
+      alignItems: 'center',
+      children: [
+        { type: 'spacer' },
+        content,
+        { type: 'spacer' }
+      ]
+    });
+
+    // 共享标题格：CPU/RAM/NET/DISK 四个标题放进同一行的等宽格子里，天然顶部对齐。
+    const columnLabel = text => ({
+      type: 'stack',
+      flex: 1,
+      alignItems: 'center',
+      children: [
+        {
+          type: 'text',
+          text,
+          font: { size: 'caption1', weight: 'medium' },
+          textColor: C.dim
+        }
+      ]
+    });
+
     return {
       type: 'widget',
-      padding: [18, 14],
+      // 竖直方向的内边距改用显式 spacer 控制（见 children 首尾），
+      // 这里只保留左右内边距；padding 的竖直分量固定为 0。
+      padding: [0, 14],
       // 原本 gap:5 统一作用于所有相邻子元素之间。
-      // 为了让"标题行→规格行"单独多出 4pt、同时不影响规格行以下内容的绝对位置，
-      // 这里把 gap 改为 0，用显式 spacer 精确还原/调整每一段间距。
+      // 这里把 gap 改为 0，用显式 spacer 精确控制每一段间距。
       gap: 0,
       ...bg,
       children: [
+        // ⓪ 组件上边缘 → 标题行
+        { type: 'spacer', length: medTopPadding },
+
         // 标题行
         {
           type: 'stack',
@@ -573,8 +681,8 @@ export default async function (ctx) {
           ]
         },
 
-        // 标题行 → 规格行：原 gap(5) + 4pt，让规格行整体下移约 4pt
-        { type: 'spacer', length: 16 },
+        // ① 标题行 → 规格行
+        { type: 'spacer', length: gapTitleToSpec },
 
         // 规格行
         {
@@ -592,80 +700,73 @@ export default async function (ctx) {
           ]
         },
 
-        // 规格行 → 分隔线：原 gap(5) - 4pt，抵消上面多加的 4pt，
-        // 使分隔线及其后所有内容的绝对位置与调整前完全一致
-        { type: 'spacer', length: 1 },
+        // ② 规格行 → 分隔线
+        { type: 'spacer', length: gapSpecToDivider },
 
         hDivider(),
 
-        // 分隔线 → 主内容行：等价于原来的 gap(5) + 显式 spacer(4) + gap(5)，位置保持不变
-        { type: 'spacer', length: 14 },
+        // ③ 分隔线 → 标题行(CPU/RAM/NET/DISK)
+        { type: 'spacer', length: gapDividerToMain },
 
-        // 主内容行：四列等宽，顶部对齐
+        // 共享标题行：CPU / RAM / NET / DISK 四个标题在同一行里，天然对齐
         {
           type: 'stack',
           direction: 'row',
-          alignItems: 'start',
+          alignItems: 'center',
+          children: [
+            columnLabel('CPU'),
+            columnLabel('RAM'),
+            columnLabel('NET'),
+            columnLabel('DISK')
+          ]
+        },
+
+        // ④ 标题行(CPU/RAM/NET/DISK) → 内容行
+        { type: 'spacer', length: medLabelToContentGap },
+
+        // 共享内容行：四列统一高度 mainRowHeight，各自用 contentCell 垂直居中，
+        // 保证圆环变大变小、字体变大变小都不会破坏四列的上下对齐
+        {
+          type: 'stack',
+          direction: 'row',
+          alignItems: 'center',
           gap: 6,
           children: [
             // CPU
-            {
-              type: 'stack',
-              direction: 'column',
-              flex: 1,
-              alignItems: 'center',
-              children: [
-                gauge('CPU', d.cpuPct, 48)
-              ]
-            },
+            contentCell(
+              gaugeCircleOnly(d.cpuPct, medGaugeSize, medGaugeFontSize)
+            ),
             // RAM
-            {
-              type: 'stack',
-              direction: 'column',
-              flex: 1,
-              alignItems: 'center',
-              children: [
-                gauge('RAM', d.memPct, 48)
-              ]
-            },
+            contentCell(
+              gaugeCircleOnly(d.memPct, medGaugeSize, medGaugeFontSize)
+            ),
             // NET
-            {
+            contentCell({
               type: 'stack',
               direction: 'column',
-              flex: 1,
-              gap: 9,
+              gap: statGap,
               alignItems: 'center',
               children: [
-                {
-                  type: 'text',
-                  text: 'NET',
-                  font: { size: 'caption1', weight: 'medium' },
-                  textColor: C.dim
-                },
-                statLine('arrow.up.circle', ...fmtBytesParts(d.txRate), 12),
-                statLine('arrow.down.circle', ...fmtBytesParts(d.rxRate), 12)
+                statLine('arrow.up.circle', ...fmtBytesParts(d.txRate), medStatValueFontSize, medStatIconSize, medStatUnitFontSize),
+                statLine('arrow.down.circle', ...fmtBytesParts(d.rxRate), medStatValueFontSize, medStatIconSize, medStatUnitFontSize)
               ]
-            },
+            }),
             // DISK
-            {
+            contentCell({
               type: 'stack',
               direction: 'column',
-              flex: 1,
-              gap: 9,
+              gap: statGap,
               alignItems: 'center',
               children: [
-                {
-                  type: 'text',
-                  text: 'DISK',
-                  font: { size: 'caption1', weight: 'medium' },
-                  textColor: C.dim
-                },
-                statLine('r.circle', ...fmtBytesParts(d.diskRd), 12),
-                statLine('w.circle', ...fmtBytesParts(d.diskWr), 12)
+                statLine('r.circle', ...fmtBytesParts(d.diskRd), medStatValueFontSize, medStatIconSize, medStatUnitFontSize),
+                statLine('w.circle', ...fmtBytesParts(d.diskWr), medStatValueFontSize, medStatIconSize, medStatUnitFontSize)
               ]
-            }
+            })
           ]
-        }
+        },
+
+        // ⑤ 内容行 → 组件下边缘（保持原有间距不变）
+        { type: 'spacer', length: 18 }
       ]
     };
   }
