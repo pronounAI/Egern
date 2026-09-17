@@ -5,16 +5,9 @@
 //   flag        = 任意 emoji，如 🇸🇬  → 大号组件标题栏左侧显示的国旗/图标（默认显示服务器图标）
 //   displayName = 自定义名称，如 "Oracle Singapore" → 大号组件标题（默认使用主机名）
 //
-//   —— 中号组件（systemMedium）三处间距，可通过环境变量单独调节 ——
-//   gapTitleToSpec    = 标题行 → 规格行 的间距（默认 16）
-//   gapSpecToDivider  = 规格行 → 分隔线 的间距（默认 1）
-//   gapDividerToMain  = 分隔线 → 主内容行(CPU/RAM/NET/DISK) 的间距（默认 14）
-//
-//   —— 中号组件 CPU/RAM 圆环大小、标题行边距、内容间距，可通过环境变量单独调节 ——
-//   medGaugeSize          = CPU/RAM 圆环直径（默认 48）
-//   medTopPadding         = 标题行(🇲🇾AWS Malaysia) 到组件上边缘的间距（默认 18）
-//   medLabelToContentGap  = CPU/RAM/NET/DISK 标题行 → 下方内容行(红圈内) 的间距（默认 8）
-//   以上几项无论怎么调，CPU/RAM/NET/DISK 四列的标题行、内容行都会保持整齐对齐。
+// 中号组件（systemMedium）的各处间距/圆环大小已按调好的效果写死在代码里
+// （见 systemMedium 分支开头的 gapTitleToSpec / medGaugeSize / medStatRowGap 等常量），
+// 不再通过环境变量控制；如需再调整，直接改那几行的数值即可。
 
 export default async function (ctx) {
   // ---------- 工具函数 ----------
@@ -32,14 +25,6 @@ export default async function (ctx) {
     if (b >= 1e6)  return [(b / 1e6).toFixed(1), 'MB/s'];
     if (b >= 1e3)  return [(b / 1e3).toFixed(1), 'KB/s'];
     return [Math.round(b).toString(), 'B/s'];
-  };
-
-  // 安全解析数字型环境变量，非法/缺省时回退到默认值
-  const envNum = (key, fallback) => {
-    const raw = ctx.env[key];
-    if (raw === undefined || raw === null || raw === '') return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : fallback;
   };
 
   // ---------- 数据获取 ----------
@@ -345,11 +330,12 @@ export default async function (ctx) {
   // fontSize  = 数值文字大小（原来的 size 参数，默认 16，与旧行为一致）
   // iconSize  = 图标大小，不传时按旧公式 fontSize-1 计算（与旧行为一致）
   // unitSize  = 单位文字大小（原来写死 11，现在可单独传参覆盖）
-  const statLine = (icon, value, unit, fontSize = 16, iconSize = fontSize - 1, unitSize = 11) => ({
+  const statLine = (icon, value, unit, fontSize = 16, iconSize = fontSize - 1, unitSize = 11, rowHeight) => ({
     type: 'stack',
     direction: 'row',
     alignItems: 'center',
     gap: 5,
+    ...(rowHeight ? { height: rowHeight } : {}),
     children: [
       {
         type: 'image',
@@ -362,13 +348,18 @@ export default async function (ctx) {
         type: 'text',
         text: value,
         font: { size: fontSize, weight: 'bold', family: 'Menlo' },
-        textColor: C.text
+        textColor: C.text,
+        // 数值再长也强制一行显示，宁可缩小也不允许换行撑高整列
+        maxLines: 1,
+        minScale: 0.6
       },
       {
         type: 'text',
         text: unit,
         font: { size: unitSize },
-        textColor: C.muted
+        textColor: C.muted,
+        maxLines: 1,
+        minScale: 0.6
       }
     ]
   });
@@ -569,33 +560,32 @@ export default async function (ctx) {
     };
   }
 
-  // ---------- 中号（最终调整版，三处间距可通过环境变量控制） ----------
+  // ---------- 中号（数值已按你调好的效果写死，不再依赖环境变量） ----------
   if (ctx.widgetFamily === 'systemMedium') {
-    // 三处可调间距，对应截图中标注的 1 / 2 / 3：
+    // 三处间距，对应之前截图中标注的 1 / 2 / 3：
     //   1) 标题行 → 规格行
     //   2) 规格行 → 分隔线
     //   3) 分隔线 → 主内容行 (CPU/RAM/NET/DISK)
-    // 未设置对应环境变量时，回退到原来的默认值（16 / 1 / 14）
-    const gapTitleToSpec   = envNum('gapTitleToSpec', 16);
-    const gapSpecToDivider = envNum('gapSpecToDivider', 1);
-    const gapDividerToMain = envNum('gapDividerToMain', 14);
+    const gapTitleToSpec   = 8;
+    const gapSpecToDivider = 0;
+    const gapDividerToMain = 0;
 
-    // CPU/RAM 圆环直径可通过环境变量调节；圆环内字体、NET/DISK 数值与单位字体固定为默认值。
-    const medGaugeSize     = envNum('medGaugeSize', 48);
+    // CPU/RAM 圆环直径；圆环内字体、NET/DISK 数值与单位字体固定为默认值。
+    const medGaugeSize     = 55;
     const medGaugeFontSize = 12;
     const medStatValueFontSize = 12;
     const medStatUnitFontSize  = 11;
     const medStatIconSize      = 12; // 图标大小固定，不随字体变化，避免图标忽大忽小
 
-    // 标题行与组件上边缘的间距、CPU/RAM/NET/DISK 标题行与下方内容行的间距，均可调节。
-    const medTopPadding      = envNum('medTopPadding', 18);
-    const medLabelToContentGap = envNum('medLabelToContentGap', 8);
+    // 标题行与组件上边缘的间距、CPU/RAM/NET/DISK 标题行与下方内容行的间距。
+    const medTopPadding      = 18;
+    const medLabelToContentGap = 0;
 
-    // 内容行的统一高度：取"圆环直径"与"NET/DISK 两行文字块的估算高度"中较大的一个，
-    // 这样无论圆环多大、字体多大，四列都能在同一个行高里垂直居中，顶部/底部始终对齐。
-    const statLineEstHeight = Math.max(medStatValueFontSize, medStatUnitFontSize, medStatIconSize) + 6;
-    const statGap = 9;
-    const statBlockHeight = statLineEstHeight * 2 + statGap;
+    // 内容行的统一高度：取"圆环直径"与"NET/DISK 两行文字块的高度"中较大的一个，
+    // 这样无论圆环多大，四列都能在同一个行高里垂直居中，顶部/底部始终对齐。
+    const statLineHeight = 22; // 单行（图标+数值+单位）预留的高度，固定值
+    const statGap = 6; // ↑/↓（或 R/W）两行之间的间距
+    const statBlockHeight = statLineHeight * 2 + statGap;
     const mainRowHeight = Math.max(medGaugeSize, statBlockHeight);
 
     // 内容行里每一列的容器：固定 mainRowHeight 高度，内容用一对弹性 spacer 夹住，
@@ -610,6 +600,24 @@ export default async function (ctx) {
         { type: 'spacer' },
         content,
         { type: 'spacer' }
+      ]
+    });
+
+    // NET/DISK 专用容器：第一行贴在这一列的最上端（对齐上面那条参考线）。
+    // 中间用固定长度 statGap（即 medStatRowGap）撑开，不再是弹性 spacer。
+    // 好处：调这个变量立刻生效，不受圆环直径的下限影响。
+    // 代价：如果圆环直径比这两行内容还高（mainRowHeight 由圆环决定），
+    // 第二行（↓ / W）就不会再紧贴这一列的最下端，中间会多出一截空白。
+    const edgePinnedCell = (topLine, bottomLine) => ({
+      type: 'stack',
+      direction: 'column',
+      flex: 1,
+      height: mainRowHeight,
+      alignItems: 'center',
+      children: [
+        topLine,
+        { type: 'spacer', length: statGap },
+        bottomLine
       ]
     });
 
@@ -724,8 +732,10 @@ export default async function (ctx) {
         // ④ 标题行(CPU/RAM/NET/DISK) → 内容行
         { type: 'spacer', length: medLabelToContentGap },
 
-        // 共享内容行：四列统一高度 mainRowHeight，各自用 contentCell 垂直居中，
-        // 保证圆环变大变小、字体变大变小都不会破坏四列的上下对齐
+        // 共享内容行：四列统一高度 mainRowHeight。
+        // CPU/RAM 用 contentCell 整体居中（圆环本身就撑满行高，天然贴合上下参考线）；
+        // NET/DISK 用 edgePinnedCell，两行数值分别死死顶住这一列的最上端和最下端，
+        // 不会因为某个数值变长/变短而整体上下漂移。
         {
           type: 'stack',
           direction: 'row',
@@ -740,28 +750,16 @@ export default async function (ctx) {
             contentCell(
               gaugeCircleOnly(d.memPct, medGaugeSize, medGaugeFontSize)
             ),
-            // NET
-            contentCell({
-              type: 'stack',
-              direction: 'column',
-              gap: statGap,
-              alignItems: 'center',
-              children: [
-                statLine('arrow.up.circle', ...fmtBytesParts(d.txRate), medStatValueFontSize, medStatIconSize, medStatUnitFontSize),
-                statLine('arrow.down.circle', ...fmtBytesParts(d.rxRate), medStatValueFontSize, medStatIconSize, medStatUnitFontSize)
-              ]
-            }),
-            // DISK
-            contentCell({
-              type: 'stack',
-              direction: 'column',
-              gap: statGap,
-              alignItems: 'center',
-              children: [
-                statLine('r.circle', ...fmtBytesParts(d.diskRd), medStatValueFontSize, medStatIconSize, medStatUnitFontSize),
-                statLine('w.circle', ...fmtBytesParts(d.diskWr), medStatValueFontSize, medStatIconSize, medStatUnitFontSize)
-              ]
-            })
+            // NET：↑ 行死死顶在最上端，↓ 行死死顶在最下端
+            edgePinnedCell(
+              statLine('arrow.up.circle', ...fmtBytesParts(d.txRate), medStatValueFontSize, medStatIconSize, medStatUnitFontSize, statLineHeight),
+              statLine('arrow.down.circle', ...fmtBytesParts(d.rxRate), medStatValueFontSize, medStatIconSize, medStatUnitFontSize, statLineHeight)
+            ),
+            // DISK：R 行死死顶在最上端，W 行死死顶在最下端
+            edgePinnedCell(
+              statLine('r.circle', ...fmtBytesParts(d.diskRd), medStatValueFontSize, medStatIconSize, medStatUnitFontSize, statLineHeight),
+              statLine('w.circle', ...fmtBytesParts(d.diskWr), medStatValueFontSize, medStatIconSize, medStatUnitFontSize, statLineHeight)
+            )
           ]
         },
 
