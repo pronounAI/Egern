@@ -1,7 +1,7 @@
 // Server Monitor Widget for Egern (自适应深浅色 + 纯透明模式)
 // 环境变量：
 //   host, username, password 或 privateKey, port（默认 22）
-//   glass       = 1/true/yes/on → 完全透明模式，不设置任何背景（默认关闭，使用渐变深色/浅色背景）
+//   glass       = 1/true/yes/on → 完全透明模式，不设置任何背景（默认关闭，使用纯色深色/浅色背景）
 //   flag        = 任意 emoji，如 🇸🇬  → 大号组件标题栏左侧显示的国旗/图标（默认显示服务器图标）
 //   displayName = 自定义名称，如 "Oracle Singapore" → 大号组件标题（默认使用主机名）
 //
@@ -206,15 +206,7 @@ export default async function (ctx) {
   const bg = glass
     ? {}
     : {
-        backgroundGradient: {
-          type: 'linear',
-          colors: [
-            { light: '#F8F9FB', dark: '#0D0D0F' },
-            { light: '#EDEEF2', dark: '#1C1C1E' }
-          ],
-          startPoint: { x: 0, y: 0 },
-          endPoint: { x: 1, y: 1 }
-        }
+        backgroundColor: { light: '#FFFFFF', dark: '#000000' }
       };
 
   // ---------- 通用组件 ----------
