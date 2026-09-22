@@ -5,8 +5,9 @@
  * POLICY：
  *   指定策略组或节点
  *
- * STYLE：
- *   "glass" 启用透明模式（不设置任何背景色，卡片描边极淡，壁纸直接透出）
+ * glass：
+ *   环境变量 glass = 1/true/yes/on 启用透明模式（不设置任何背景色，卡片描边极淡，壁纸直接透出）
+ *   不填或为 0/false 时使用纯色背景：浅色纯白，深色纯黑
  *
  * 示例：
  *   widgets:
@@ -14,7 +15,7 @@
  *       script: 数据中心
  *       env:
  *         POLICY: "本地节点"
- *         STYLE: "glass"
+ *         glass: "1"
  *
  * 也可以：
  *   POLICY: "新加坡"
@@ -22,7 +23,7 @@
  *   POLICY: "DIRECT"
  *
  * v2 变更说明：
- *   - 新增 STYLE=glass 透明模式（学习 IPPure 脚本：透明时不设置背景，仅加极淡描边）
+ *   - 新增 glass=1 透明模式（学习 IPPure 脚本：透明时不设置背景，仅加极淡描边）
  *   - ChatGPT / TikTok 检测中的子请求改为独立容错，单次子请求失败不再让整体误判为"Cross"
  *   - 移除了会让 ATS 直接拦截明文 HTTP 请求的 http://ip-api.com 调用，
  *     改为直接复用前面已经拿到的落地 IP（nIp）去查 ipapi.is，少一次不稳定的外部请求
@@ -35,9 +36,11 @@
 
 async function renderWidget(ctx) {
   const widgetFamily = ctx.widgetFamily || 'systemMedium';
-  const isGlass = (ctx.env.STYLE || '').toLowerCase() === 'glass';
+  const isGlass = ['1', 'true', 'yes', 'on'].includes(
+    String(ctx.env.glass || '').toLowerCase()
+  );
 
-  const BG_COLOR = { light: '#F2F2F7', dark: '#000000' };
+  const BG_COLOR = { light: '#FFFFFF', dark: '#000000' };
   const C_TITLE = { light: '#1A1A1A', dark: '#FFFFFF' };
   const C_SUB = { light: '#666666', dark: '#B0B0B0' };
   const C_MAIN = { light: '#1A1A1A', dark: '#FFFFFF' };
@@ -631,7 +634,7 @@ export default async function (ctx) {
     return {
       type: 'widget',
       padding: 16,
-      backgroundColor: { light: '#F2F2F7', dark: '#000000' },
+      backgroundColor: { light: '#FFFFFF', dark: '#000000' },
       children: [
         {
           type: 'text',
