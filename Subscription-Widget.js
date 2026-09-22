@@ -15,7 +15,7 @@
  */
 
 const C = {
-  bg:       { light: '#FFFFFF', dark: '#050506' },
+  bg:       { light: '#FFFFFF', dark: '#121111' },
   text:     { light: '#111114', dark: '#F7F7F8' },
   dim:      { light: '#7B7B84', dark: '#85858E' },
   panel:    { light: '#F5F5F7', dark: '#111114' },
