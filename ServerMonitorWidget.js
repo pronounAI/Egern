@@ -206,7 +206,7 @@ export default async function (ctx) {
   const bg = glass
     ? {}
     : {
-        backgroundColor: { light: '#FFFFFF', dark: '#000000' }
+        backgroundColor: { light: '#FFFFFF', dark: '#121111' }
       };
 
   // ---------- 通用组件 ----------
