@@ -250,10 +250,22 @@ function statusOf(data) {
   if ((!traffic.unlimited && traffic.remaining <= 0) || (days != null && days <= 0)) {
     return { label: '套餐已过期', icon: 'xmark.circle.fill', bgColor: 'rgba(214, 69, 69, 0.35)', iconColor: '#FF626A' };
   }
-  if ((!traffic.unlimited && ratio != null && ratio <= 0.2) ||
-      (traffic.partial && traffic.remaining <= 10 * (1024 ** 3)) ||
-      (days != null && days <= 7)) {
+
+  // 流量偏低、即将到期是两个独立的条件，不应共用同一句文案：
+  // 否则流量还很充足、只是快到期时，也会被误显示成"流量偏低"（如截图中剩余 94.9GB/102GB 却显示流量偏低）
+  const trafficLow =
+    (!traffic.unlimited && ratio != null && ratio <= 0.2) ||
+    (traffic.partial && traffic.remaining <= 10 * (1024 ** 3));
+  const expiringSoon = days != null && days <= 7;
+
+  if (trafficLow && expiringSoon) {
+    return { label: '流量/到期提醒', icon: 'exclamationmark.triangle.fill', bgColor: 'rgba(255, 190, 63, 0.3)', iconColor: '#FFBE3F' };
+  }
+  if (trafficLow) {
     return { label: '流量偏低', icon: 'exclamationmark.triangle.fill', bgColor: 'rgba(255, 190, 63, 0.3)', iconColor: '#FFBE3F' };
+  }
+  if (expiringSoon) {
+    return { label: '即将到期', icon: 'clock.badge.exclamationmark.fill', bgColor: 'rgba(255, 190, 63, 0.3)', iconColor: '#FFBE3F' };
   }
 
   return { label: '数据已更新', icon: 'checkmark.circle.fill', bgColor: 'rgba(255, 255, 255, 0.25)', iconColor: '#FFFFFF' };
