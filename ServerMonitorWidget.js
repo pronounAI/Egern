@@ -185,7 +185,8 @@ export default async function (ctx) {
 
   const C = {
     barBg:  { light: '#E5E5EA', dark: '#3A3A3C' },
-    divider:{ light: '#0000001A', dark: '#FFFFFF1F' },
+    // 分隔线改为实色灰，之前的半透明黑/白（'#0000001A' / '#FFFFFF1F'）在部分背景下几乎看不见
+    divider:{ light: '#D1D1D6', dark: '#48484A' },
     text:   { light: '#1C1C1E', dark: '#F5F5F7' },
     muted:  { light: '#8E8E93', dark: '#8E8E93' },
     dim:    { light: '#AEAEB2', dark: '#636366' },
@@ -203,6 +204,15 @@ export default async function (ctx) {
     return C.cpu;
   };
 
+  // 圆环描边颜色：与 pctColor 同样的 60/85 分级阈值（绿 / 黄 / 红），
+  // 但 SVG 是离屏渲染的静态图片，无法感知当前是浅色还是深色模式，
+  // 所以这里固定取一组在两种模式下都清晰可辨的实色，而不是 {light, dark} 对象。
+  const gaugeStrokeColor = pct => {
+    if (pct >= 85) return '#FF453A'; // 高负载：红
+    if (pct >= 60) return '#FF9F0A'; // 偏高：橙/黄
+    return '#30D158';                // 低负载：绿
+  };
+
   const bg = glass
     ? {}
     : {
@@ -210,29 +220,37 @@ export default async function (ctx) {
       };
 
   // ---------- 通用组件 ----------
+  // 之前 hDivider 只设置了 height，没有宽度：空容器（children: []）没有任何东西
+  // 撑开它，布局引擎会把它折叠成宽度为 0 的线，导致颜色再深也完全不可见。
+  // 这里把它包进一个 row，用 flex: 1 强制内部色块占满整行宽度。
   const hDivider = () => ({
     type: 'stack',
+    direction: 'row',
     height: 1,
-    backgroundColor: C.divider,
-    children: []
+    children: [
+      {
+        type: 'stack',
+        height: 1,
+        backgroundColor: C.divider,
+        flex: 1,
+        children: []
+      }
+    ]
   });
 
+  // 圆环颜色现在按使用率分级（绿/黄/红），不再是固定的蓝→绿渐变；
+  // 环的填充长度逻辑不变，依然是按 pct 画弧长。
   const gaugeSvg = pct => {
     const p = Math.max(0, Math.min(100, pct));
     const r = 40;
     const c = 2 * Math.PI * r;
     const offset = c * (1 - p / 100);
+    const strokeColor = gaugeStrokeColor(p);
 
     const svg =
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">` +
-      `<defs>` +
-      `<linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">` +
-      `<stop offset="0%" stop-color="#0A84FF"/>` +
-      `<stop offset="100%" stop-color="#30D158"/>` +
-      `</linearGradient>` +
-      `</defs>` +
       `<circle cx="50" cy="50" r="${r}" fill="none" stroke="#8E8E9355" stroke-width="9"/>` +
-      `<circle cx="50" cy="50" r="${r}" fill="none" stroke="url(#g)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}" transform="rotate(-90 50 50)"/>` +
+      `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${strokeColor}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}" transform="rotate(-90 50 50)"/>` +
       `</svg>`;
 
     return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
@@ -558,8 +576,12 @@ export default async function (ctx) {
     //   1) 标题行 → 规格行
     //   2) 规格行 → 分隔线
     //   3) 分隔线 → 主内容行 (CPU/RAM/NET/DISK)
-    const gapTitleToSpec   = 8;
-    const gapSpecToDivider = 0;
+    const gapTitleToSpec   = 3;
+    // 说明：分隔线偏上是因为两行文字本身的字体行高（上下留白）不对称，
+    // 并非这两个间距值本身导致的。要在总间距不变的前提下让线居中，
+    // 只能把线两侧留白的分配比例改一改——这必然会让下面一行内容跟着挪几个点，
+    // 这里做的是"往下移一点点、接近居中"和"CPU/RAM/NET/DISK 行完全不挪动"之间的折中。
+    const gapSpecToDivider = 5;
     const gapDividerToMain = 0;
 
     // CPU/RAM 圆环直径；圆环内字体、NET/DISK 数值与单位字体固定为默认值。
@@ -700,7 +722,7 @@ export default async function (ctx) {
           ]
         },
 
-        // ② 规格行 → 分隔线
+        // ② 规格行 → 分隔线（Cores 这一行 和 下方 CPU/RAM/NET/DISK 标题行之间的灰色细线）
         { type: 'spacer', length: gapSpecToDivider },
 
         hDivider(),
@@ -820,6 +842,7 @@ export default async function (ctx) {
           specItem('power', `${d.uptimeDays} Days`)
         ]
       },
+      // 规格行 与 CPU/RAM 圆环行之间的灰色细线
       hDivider(),
       {
         type: 'stack',
