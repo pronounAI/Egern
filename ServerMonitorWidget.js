@@ -231,18 +231,24 @@ export default async function (ctx) {
     ]
   });
 
-  // 圆环：灰色完整轨道 + 按用量的绿色弧（path 方式，从顶部开始，圆角端点），宽度已减半
+  // 圆环：灰色完整轨道 + 按用量的绿色弧（path 方式，从顶部开始，圆角端点）
+  // 宽度增加三分之二（6→10），向内外各扩展三分之一；浅色模式轨道使用浅灰色（与深色模式轨道风格一致）
   const gaugeSvg = pct => {
     const p = Math.max(0, Math.min(100, pct));
     const r = 36;
     const cx = 50;
     const cy = 50;
-    const sw = 6;
-    const trackColor = '#3A3A3C';
+    const sw = 10; // 原 6，增加 2/3，内外各扩 1/3
     const strokeColor = gaugeStrokeColor(p);
 
     let svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>`;
-    svg += `<circle cx='${cx}' cy='${cy}' r='${r}' fill='none' stroke='${trackColor}' stroke-width='${sw}'/>`;
+    svg += `<style>
+      .track { stroke: #E5E5EA; }
+      @media (prefers-color-scheme: dark) {
+        .track { stroke: #3A3A3C; }
+      }
+    </style>`;
+    svg += `<circle class='track' cx='${cx}' cy='${cy}' r='${r}' fill='none' stroke-width='${sw}'/>`;
 
     if (p > 0.5) {
       const angle = (p / 100) * 2 * Math.PI - Math.PI / 2;
