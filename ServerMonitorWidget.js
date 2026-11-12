@@ -238,7 +238,7 @@ export default async function (ctx) {
     const r = 36;
     const cx = 50;
     const cy = 50;
-    const sw = 10; // 原 6，增加 2/3，内外各扩 1/3
+    const sw = 8; // 原 6，增加 2/3，内外各扩 1/3
     const strokeColor = gaugeStrokeColor(p);
 
     let svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>`;
