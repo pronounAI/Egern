@@ -510,7 +510,7 @@ export default async function (ctx) {
       const r = 36;
       const cx = 50;
       const cy = 50;
-      const sw = 8;
+      const sw = 6;
       let svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>`;
       svg += `<style>
       .track { stroke: #E5E5EA; }
