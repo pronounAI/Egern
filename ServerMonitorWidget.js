@@ -497,15 +497,78 @@ export default async function (ctx) {
   }
 
   // ---------- 小号 ----------
-  // 2026-11-13 小号专属微调：顶部/底部留空相等 + 标题字号稍加大，中/大号与锁屏分支未动
-  // 做法：padding 改为 [上16, 右10, 下16, 左10]（上下相等、左右不变），
-  // 并在 children 首尾各加一个弹性 spacer，让剩余高度由上下两个 spacer 平分，
-  // 内容块整体垂直居中，底部不再留一大块空白，顶部也不再贴边。
+  // 2026-11-13 B 方案 v2：三环并排 + 分割线（只改小号，中/大号与锁屏分支未动）
+  // 布局：标题行（国旗 + 名称 14 号字 + 在线绿点）→ CPU/MEM/DISK 三个小圆环一排
+  //      → 1px 分割线（复用中号的 hDivider）→ 底部实时网速
+  // 收窄：padding 从 [16,10,16,10] 改为 [8,8,8,8]，圆环从 42 放大到 44，根 gap 从 6 加到 8，
+  // 上下留空约从 20pt 收到 11pt；首尾弹性 spacer 保留，内容仍垂直居中。
   if (ctx.widgetFamily === 'systemSmall') {
+    // 小号专用的迷你圆环：与通用 gaugeSvg 同一套画法，但弧线颜色按指标固定，
+    // 只定义在小号分支里，不影响中/大号用的 gauge / gaugeCircleOnly。
+    const smallRingSvg = (pct, color) => {
+      const p = Math.max(0, Math.min(100, pct));
+      const r = 36;
+      const cx = 50;
+      const cy = 50;
+      const sw = 8;
+      let svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>`;
+      svg += `<style>
+      .track { stroke: #E5E5EA; }
+      @media (prefers-color-scheme: dark) {
+        .track { stroke: #3A3A3C; }
+      }
+    </style>`;
+      svg += `<circle class='track' cx='${cx}' cy='${cy}' r='${r}' fill='none' stroke-width='${sw}'/>`;
+      if (p > 0.5) {
+        const angle = (p / 100) * 2 * Math.PI - Math.PI / 2;
+        const endX = (cx + r * Math.cos(angle)).toFixed(2);
+        const endY = (cy + r * Math.sin(angle)).toFixed(2);
+        const largeArc = p > 50 ? 1 : 0;
+        svg += `<path d='M ${cx} ${cy - r} A ${r} ${r} 0 ${largeArc} 1 ${endX} ${endY}' fill='none' stroke='${color}' stroke-width='${sw}' stroke-linecap='round'/>`;
+      }
+      svg += `</svg>`;
+      return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    };
+
+    // 单个迷你环：环 44 + 环内百分比 + 下方标签；三个并排 132pt，左右 padding 收到 8 后内容宽 139pt
+    const miniRing = (label, pct, color) => ({
+      type: 'stack',
+      direction: 'column',
+      alignItems: 'center',
+      gap: 3,
+      children: [
+        {
+          type: 'stack',
+          width: 44,
+          height: 44,
+          backgroundImage: smallRingSvg(pct, color),
+          direction: 'row',
+          alignItems: 'center',
+          children: [
+            { type: 'spacer' },
+            {
+              type: 'text',
+              text: `${Math.round(pct)}%`,
+              font: { size: 10, weight: 'bold', family: 'Menlo' },
+              textColor: { light: '#000000', dark: '#FFFFFF' },
+              textAlign: 'center'
+            },
+            { type: 'spacer' }
+          ]
+        },
+        {
+          type: 'text',
+          text: label,
+          font: { size: 'caption2', weight: 'medium' },
+          textColor: C.dim
+        }
+      ]
+    });
+
     return {
       type: 'widget',
-      padding: [16, 10, 16, 10],
-      gap: 6,
+      padding: [8, 8, 8, 8],
+      gap: 8,
       ...bg,
       children: [
         { type: 'spacer' },
@@ -545,26 +608,28 @@ export default async function (ctx) {
         {
           type: 'stack',
           direction: 'row',
+          alignItems: 'center',
           children: [
+            miniRing('CPU', d.cpuPct, '#30D158'),
             { type: 'spacer' },
-            gauge('CPU', d.cpuPct, 64),
-            { type: 'spacer' }
+            miniRing('MEM', d.memPct, '#0A84FF'),
+            { type: 'spacer' },
+            miniRing('DISK', d.diskPct, '#FF9F0A')
           ]
         },
+
+        hDivider(),
+
         {
           type: 'stack',
           direction: 'row',
           children: [
             { type: 'spacer' },
             {
-              type: 'stack',
-              direction: 'row',
-              alignItems: 'center',
-              gap: 14,
-              children: [
-                specItem('memorychip', `${d.memPct}%`, 12),
-                specItem('internaldrive', `${d.diskPct}%`, 12)
-              ]
+              type: 'text',
+              text: `↓${fmtBytes(d.rxRate)}/s  ↑${fmtBytes(d.txRate)}/s`,
+              font: { size: 11, family: 'Menlo' },
+              textColor: C.muted
             },
             { type: 'spacer' }
           ]
