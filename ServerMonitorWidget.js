@@ -497,13 +497,18 @@ export default async function (ctx) {
   }
 
   // ---------- 小号 ----------
+  // 2026-11-13 小号专属微调：顶部/底部留空相等 + 标题字号稍加大，中/大号与锁屏分支未动
+  // 做法：padding 改为 [上16, 右10, 下16, 左10]（上下相等、左右不变），
+  // 并在 children 首尾各加一个弹性 spacer，让剩余高度由上下两个 spacer 平分，
+  // 内容块整体垂直居中，底部不再留一大块空白，顶部也不再贴边。
   if (ctx.widgetFamily === 'systemSmall') {
     return {
       type: 'widget',
-      padding: 10,
+      padding: [16, 10, 16, 10],
       gap: 6,
       ...bg,
       children: [
+        { type: 'spacer' },
         {
           type: 'stack',
           direction: 'row',
@@ -522,7 +527,7 @@ export default async function (ctx) {
             {
               type: 'text',
               text: displayName,
-              font: { size: 'caption1', weight: 'bold' },
+              font: { size: 14, weight: 'bold' }, // 小号标题：caption1(12) → 14，稍大一点
               textColor: C.text,
               maxLines: 1,
               minScale: 0.8
@@ -563,7 +568,8 @@ export default async function (ctx) {
             },
             { type: 'spacer' }
           ]
-        }
+        },
+        { type: 'spacer' }
       ]
     };
   }
